@@ -55,6 +55,11 @@ export class YuyiLink {
     return this.hub?.connected ?? false;
   }
 
+  /** Hub 认定的连接主体（welcome 回带；未握手时 undefined） */
+  get principal(): "device" | "agent" | undefined {
+    return this.hub?.connectionPrincipal;
+  }
+
   /** 启动设备级 Hub WS */
   start(): void {
     if (this.hub) {
@@ -191,6 +196,14 @@ export class YuyiLink {
           }
         : undefined;
     return hub.send(message, from);
+  }
+
+  /** Hub peers 快照（未连接时抛错由调用方兜底） */
+  async peers(): Promise<unknown> {
+    if (!this.hub?.connected) {
+      throw new Error("yuyi hub offline");
+    }
+    return this.hub.peers();
   }
 
   /** 向 Hub 注册一个本地 Agent（Hub 侧独立跑御符 verify，D9） */

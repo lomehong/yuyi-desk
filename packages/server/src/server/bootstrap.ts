@@ -162,6 +162,7 @@ import {
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { ScheduleService } from "./schedule/service.js";
 import { YuyiService } from "./yuyi/service.js";
+import { createYuyiMcpServer } from "./yuyi/mcp-server.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import {
@@ -279,6 +280,18 @@ function createAgentMcpBaseUrl(listenTarget: ListenTarget | null): string | null
   const host = resolveAgentMcpClientHost(listenTarget.host);
   return new URL(
     "/mcp/agents",
+    `http://${formatHostForHttpUrl(host)}:${listenTarget.port}`,
+  ).toString();
+}
+
+// yuyi fork: /mcp/yuyi base URL (same host resolution as the agent MCP route)
+function createYuyiMcpBaseUrl(listenTarget: ListenTarget | null): string | null {
+  if (!listenTarget || listenTarget.type !== "tcp") {
+    return null;
+  }
+  const host = resolveAgentMcpClientHost(listenTarget.host);
+  return new URL(
+    "/mcp/yuyi",
     `http://${formatHostForHttpUrl(host)}:${listenTarget.port}`,
   ).toString();
 }
@@ -1748,6 +1761,80 @@ export async function createPaseoDaemon(
     logger.info({ route: agentMcpRoute, enabled: mcpEnabled }, "Agent MCP route mounted");
   }
 
+  // yuyi fork: /mcp/yuyi — 御驿工具面（yuyi_send / yuyi_status / yuyi_peers），
+  // 随 per-agent 会话配置注入；鉴权与 /mcp/agents 同款（capability token 或 daemon 密码）。
+  {
+    const yuyiMcpRoute = "/mcp/yuyi";
+    const createYuyiMcpSession = async (callerAgentId?: string) => {
+      const server = await createYuyiMcpServer({ callerAgentId, host: yuyiService });
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableDnsRebindingProtection: false,
+      });
+      Object.assign(transport, {
+        onerror: (err: Error) => {
+          logger.error({ err }, "Yuyi MCP transport error");
+        },
+      });
+      await server.connect(transport);
+      return { server, transport };
+    };
+    const handleYuyiMcpRequest: express.RequestHandler = (req, res) => {
+      void (async () => {
+        if (!mcpEnabled) {
+          res.status(404).json({ error: "Yuyi MCP endpoint disabled" });
+          return;
+        }
+        if (
+          !(await isAgentMcpRequestAuthorized({
+            password: config.auth?.password,
+            capabilityToken: agentMcpAuthToken,
+            authorizationHeader: req.header("authorization"),
+          }))
+        ) {
+          res.status(401).json({ error: "Unauthorized" });
+          return;
+        }
+        if (req.method !== "POST") {
+          res.status(405).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Method not allowed" },
+            id: null,
+          });
+          return;
+        }
+        try {
+          const raw = req.query.callerAgentId;
+          const callerAgentId =
+            typeof raw === "string" ? raw : Array.isArray(raw) && typeof raw[0] === "string" ? raw[0] : undefined;
+          const { server, transport } = await createYuyiMcpSession(callerAgentId);
+          res.on("close", () => {
+            void transport.close();
+            void server.close();
+          });
+          await transport.handleRequest(
+            req as unknown as IncomingMessage,
+            res as unknown as ServerResponse,
+            req.body,
+          );
+        } catch (err) {
+          logger.error({ err }, "Failed to handle Yuyi MCP request");
+          if (!res.headersSent) {
+            res.status(500).json({
+              jsonrpc: "2.0",
+              error: { code: -32603, message: "Internal MCP server error" },
+              id: null,
+            });
+          }
+        }
+      })();
+    };
+    app.post(yuyiMcpRoute, handleYuyiMcpRequest);
+    app.get(yuyiMcpRoute, handleYuyiMcpRequest);
+    app.delete(yuyiMcpRoute, handleYuyiMcpRequest);
+    logger.info({ route: yuyiMcpRoute, enabled: mcpEnabled }, "Yuyi MCP route mounted");
+  }
+
   logger.info({ elapsed: elapsed() }, "Bootstrap complete, ready to start listening");
 
   const start = async () => {
@@ -1785,6 +1872,11 @@ export async function createPaseoDaemon(
               !mcpEnabled || config.mcpInjectIntoAgents === false ? null : mcpBaseUrl;
             agentManager.setMcpBaseUrl(agentMcpBaseUrl);
             agentManager.setPaseoToolsEnabled(mcpEnabled && config.mcpInjectIntoAgents !== false);
+            // yuyi fork: /mcp/yuyi 注入随御驿 link 激活状态
+            agentManager.setYuyiMcp(
+              yuyiService.mcpActive ? createYuyiMcpBaseUrl(boundListenTarget) : null,
+              agentMcpAuthToken,
+            );
             daemonConfigStore.onFieldChange("mcp.enabled", (value) => {
               mcpEnabled = value !== false;
               const inject = daemonConfigStore.get().mcp.injectIntoAgents !== false;

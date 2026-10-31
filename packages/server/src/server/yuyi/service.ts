@@ -56,6 +56,95 @@ export class YuyiService {
     return this.link?.connected ?? false;
   }
 
+  /** MCP 注入是否激活（yuyi 配置就绪且 link 已建） */
+  get mcpActive(): boolean {
+    return this.link !== null;
+  }
+
+  // ---- YuyiMcpHost 实现（/mcp/yuyi 工具面；返回值不含机密） ----
+
+  bindingFor(paseoAgentId: string): { name: string; agentId: string; paseoAgentId: string } | undefined {
+    const binding = this.byPaseo.get(paseoAgentId);
+    return binding
+      ? { name: binding.name, agentId: binding.agentId, paseoAgentId: binding.paseoAgentId }
+      : undefined;
+  }
+
+  async sendFromAgent(
+    paseoAgentId: string,
+    params: { to: string; text: string; mode?: "notify" | "mail"; expectReply?: boolean },
+  ): Promise<{ ok: boolean; detail?: string }> {
+    const binding = this.byPaseo.get(paseoAgentId);
+    const config = this.cachedConfig;
+    if (!binding || !config || !this.link) {
+      return { ok: false, detail: "本 agent 未绑定御驿身份或链接未激活" };
+    }
+    // 协议契约：expectReply 经 Envelope.task 携带，必须有 taskId 才不丢（E2E 实证）
+    const expectReply = params.expectReply === true;
+    const message: YuyiMessage = {
+      id: `yuyidesk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      mode: params.mode ?? "notify",
+      text: params.text,
+      from: {
+        device: config.device,
+        sessionID: `${binding.name}:${binding.paseoAgentId}`,
+        name: binding.name,
+      },
+      to: { target: params.to },
+      time: Date.now(),
+      ...(expectReply
+        ? { expectReply: true, taskId: `task_yuyidesk_${Date.now().toString(36)}` }
+        : {}),
+    };
+    return this.link.sendFromBinding(binding, message);
+  }
+
+  statusSnapshot(): {
+    connected: boolean;
+    hub: string;
+    device: string;
+    principal: "device" | "agent" | null;
+    bindings: Array<{ name: string; paseoAgentId: string; title?: string | null }>;
+  } {
+    return {
+      connected: this.connected,
+      hub: this.cachedConfig?.hub ?? "",
+      device: this.cachedConfig?.device ?? "",
+      principal: this.link?.principal ?? null,
+      bindings: [...this.byPaseo.values()].map((b) => ({
+        name: b.name,
+        paseoAgentId: b.paseoAgentId,
+        title: b.sessions[0]?.title ?? null,
+      })),
+    };
+  }
+
+  async peersSnapshot(): Promise<
+    Array<{
+      device: string;
+      role?: string;
+      agentId?: string;
+      sessions: Array<{ sessionID: string; name?: string; title?: string }>;
+    }>
+  > {
+    const raw = (await this.link?.peers()) as Array<Record<string, unknown>> | undefined;
+    if (!raw) {
+      throw new Error("yuyi hub offline");
+    }
+    return raw.map((d) => ({
+      device: String(d.device ?? ""),
+      role: d.role === undefined ? undefined : String(d.role),
+      agentId: d.agentId === undefined ? undefined : String(d.agentId),
+      sessions: Array.isArray(d.sessions)
+        ? (d.sessions as Array<Record<string, unknown>>).map((s) => ({
+            sessionID: String(s.sessionID ?? ""),
+            name: s.name === undefined ? undefined : String(s.name),
+            title: s.title === undefined ? undefined : String(s.title),
+          }))
+        : [],
+    }));
+  }
+
   async start(): Promise<void> {
     const raw = this.opts.yuyiConfig;
     if (!raw || raw.enabled === false || !raw.hub || raw.agents.length === 0) {

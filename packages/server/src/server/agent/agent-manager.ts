@@ -89,6 +89,7 @@ import {
   PASEO_MCP_SERVER_NAME,
   stripInternalPaseoMcpServer,
   withRuntimePaseoMcpServer,
+  withRuntimeYuyiMcpServer,
 } from "./runtime-mcp-config.js";
 import { resolveCreateAgentTitles } from "./create-agent-title.js";
 import type { PaseoToolCatalogFactory } from "./tools/types.js";
@@ -900,6 +901,14 @@ export class AgentManager {
     this.yuyiEnvResolver = resolver;
   }
   private yuyiEnvResolver: ((agentId: string) => Record<string, string> | null) | null = null;
+
+  // yuyi fork: /mcp/yuyi injection control (set by bootstrap when the Yuyi link is active)
+  setYuyiMcp(baseUrl: string | null, authToken: string | null): void {
+    this.yuyiMcpBaseUrl = baseUrl;
+    this.yuyiMcpAuthToken = authToken;
+  }
+  private yuyiMcpBaseUrl: string | null = null;
+  private yuyiMcpAuthToken: string | null = null;
 
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
@@ -5530,14 +5539,19 @@ export class AgentManager {
       ? this.resolvePaseoToolPolicy(storedConfig.provider)
       : { enabled: false };
     const launchConfig = this.applyDaemonAppendSystemPrompt(
-      withRuntimePaseoMcpServer({
-        config: storedConfig,
+      withRuntimeYuyiMcpServer({
+        config: withRuntimePaseoMcpServer({
+          config: storedConfig,
+          agentId,
+          mcpBaseUrl:
+            this.paseoToolsEnabled && isPaseoToolPolicyEnabled(paseoToolPolicy)
+              ? this.mcpBaseUrl
+              : null,
+          mcpAuthToken: this.mcpAuthToken,
+        }),
         agentId,
-        mcpBaseUrl:
-          this.paseoToolsEnabled && isPaseoToolPolicyEnabled(paseoToolPolicy)
-            ? this.mcpBaseUrl
-            : null,
-        mcpAuthToken: this.mcpAuthToken,
+        yuyiMcpBaseUrl: this.yuyiMcpBaseUrl,
+        mcpAuthToken: this.yuyiMcpAuthToken,
       }),
     );
     return { storedConfig, launchConfig, paseoToolPolicy };

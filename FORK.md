@@ -27,9 +27,10 @@
 - **M2 客户端** ✅：Tauri 2 壳（无边框、「容器+卡片」帧、顶栏开关/三键、daemon 随包自启）、
   读 API（/api/yuyi/status|peers|inbox|ack）、原生御驿界面（状态/收件箱/同伴，9 语言）。
 - **M3 收束**（进行中）：
-  - 分发链路：NSIS 安装包 + 捆绑运行时（node.exe + server dist + yuyi-daemon.json 模板，
-    `{{INSTALL_DIR}}`/`{{PASEO_HOME}}` 占位符安装后首启解析）。**待办**：daemon 生产
-    node_modules 依赖树捆绑（现包不含依赖，daemon 拉起需开发环境）；自更新（updater 签名）。
+  - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
+    yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。
+    `apps/desktop/scripts/bundle-runtime.mjs` 一键复现（含 --ignore-scripts / qianji 实体化 /
+    web-ui 剔除 / cmd glob 全部防坑）。**待办**：安装包代码签名；自更新（updater 签名密钥+服务器）。
   - yuyi-agent 吸收合并：**前置 = Hub 部署 device-verify 修复**。合并内容：设备凭证代领
     （读 ~/.yuyi/yuyi-agent/device-credential → allowed_agents 自动生成 yuyi.agents 映射）、
     device/control 落地（YuyiLink 已留回绝桩，接实现：terminate→archive、block→暂停注入）、

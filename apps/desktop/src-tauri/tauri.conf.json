@@ -7,6 +7,7 @@
     "frontendDist": "../web-dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "御驿 Yuyi Desk",
@@ -15,7 +16,9 @@
         "height": 900,
         "minWidth": 980,
         "minHeight": 640,
-        "center": true
+        "center": true,
+        "decorations": false,
+        "resizable": true
       }
     ],
     "security": {

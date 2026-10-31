@@ -1,7 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "御驿 Desk 默认能力：仅核心窗口操作（纯壳，M2a 不开额外权限面）",
+  "description": "御驿 Desk 默认能力：核心窗口操作 + 无边框窗口自绘标题栏所需的最小窗口控制权限",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
 }

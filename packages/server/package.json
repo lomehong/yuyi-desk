@@ -116,6 +116,8 @@
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opencode-ai/sdk": "1.14.46",
     "@opencode/client": "2.0.10",
+    "@qianji/core": "file:../../../Yuyi/packages/core",
+    "@qianji/protocol": "file:../../../Yuyi/packages/protocol",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "^6.0.0",
     "ai": "5.0.78",

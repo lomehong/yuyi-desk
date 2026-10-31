@@ -892,6 +892,15 @@ export class AgentManager {
     this.mcpBaseUrl = url;
   }
 
+  // yuyi fork: per-agent Yuyi identity env resolver (set by YuyiService in bootstrap;
+  // consulted in buildLaunchContext next to PASEO_AGENT_ID injection)
+  setYuyiEnvResolver(
+    resolver: ((agentId: string) => Record<string, string> | null) | null,
+  ): void {
+    this.yuyiEnvResolver = resolver;
+  }
+  private yuyiEnvResolver: ((agentId: string) => Record<string, string> | null) | null = null;
+
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
   }
@@ -5596,6 +5605,8 @@ export class AgentManager {
         ...env,
         PASEO_AGENT_ID: agentId,
         PASEO_AGENT_CWD: cwd,
+        // yuyi fork: per-agent Yuyi identity env (YUYI_HUB/DEVICE/NAME/AGENT_ID/TOKEN)
+        ...(this.yuyiEnvResolver?.(agentId) ?? {}),
       },
     };
     const useNativeTools =

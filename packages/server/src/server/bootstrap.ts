@@ -161,6 +161,7 @@ import {
 } from "./workspace-registry.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { ScheduleService } from "./schedule/service.js";
+import { YuyiService } from "./yuyi/service.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import {
@@ -420,6 +421,8 @@ export interface PaseoDaemonConfig {
   trustedProxies?: true | string[];
   mcpEnabled?: boolean;
   mcpInjectIntoAgents?: boolean;
+  // yuyi fork: 御驿设备端配置（连接 Hub / 身份映射表 / 注入开关）
+  yuyi?: import("./yuyi/config.js").YuyiConfig;
   usageEnabled?: boolean;
   browserToolsEnabled?: boolean;
   git?: {
@@ -1456,6 +1459,19 @@ export async function createPaseoDaemon(
   });
   await scheduleService.start();
 
+  // yuyi fork M1: 御驿设备端——设备主体 Hub 连接 + 身份映射 + notify 注入/自动回信。
+  // 未配置（config.json 无 yuyi 节）时 start() 为 no-op。
+  const yuyiService = new YuyiService({
+    yuyiConfig: config.yuyi,
+    agentManager,
+    agentStorage,
+    logger,
+  });
+  agentManager.setYuyiEnvResolver((agentId) => yuyiService.envForAgent(agentId));
+  await yuyiService.start().catch((error) => {
+    logger.error({ err: error }, "Yuyi service failed to start");
+  });
+
   agentManager.setAgentArchivedCallback(async (agentId) => {
     try {
       await scheduleService.completeForAgent(agentId);
@@ -2011,6 +2027,7 @@ export async function createPaseoDaemon(
       logger.error({ err: error }, "Terminal shutdown failed");
     }
     await speechService.stop();
+    await yuyiService.stop().catch(() => undefined);
     await scheduleService.stop().catch(() => undefined);
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {

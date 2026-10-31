@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { CalendarClock, History, Plus, Search } from "lucide-react-native";
+import { CalendarClock, History, Plus, Radio, Search } from "lucide-react-native";
 import { memo, useCallback, useMemo, useRef, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { View, type StyleProp, type ViewStyle } from "react-native";
@@ -9,6 +9,7 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { PluginSidebarItem } from "@/plugins/sidebar-items";
 import { canCreateWorktreeForProjectKind } from "@/projects/host-projects";
 import { useHostFeature } from "@/runtime/host-features";
+import { useHosts } from "@/runtime/host-runtime";
 import {
   builtinSidebarNavLabelKey,
   builtinSidebarNavShortcutAction,
@@ -19,6 +20,7 @@ import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import {
+  buildHostYuyiRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
   buildSessionsRoute,
@@ -185,11 +187,38 @@ function SidebarSchedulesRow({ onBeforeNavigate }: SidebarNavRowProps) {
   );
 }
 
+// yuyi fork: 御驿（状态/收件箱/同伴）。host 域路由——从当前路径解析 serverId，
+// 无主机上下文时回退首个主机。
+function SidebarYuyiRow({ onBeforeNavigate }: SidebarNavRowProps) {
+  const { t } = useTranslation();
+  const pathname = usePathname();
+  const hosts = useHosts();
+  const handlePress = useCallback(() => {
+    const match = pathname.match(/^\/h\/([^/]+)/);
+    const serverId = match?.[1] ?? hosts[0]?.serverId;
+    if (!serverId) return;
+    onBeforeNavigate?.();
+    router.push(buildHostYuyiRoute(serverId));
+  }, [hosts, onBeforeNavigate, pathname]);
+
+  return (
+    <SidebarHeaderRow
+      icon={Radio}
+      label={t(builtinSidebarNavLabelKey("yuyi"))}
+      onPress={handlePress}
+      isActive={pathname.includes("/yuyi")}
+      testID="sidebar-yuyi"
+      variant="compact"
+    />
+  );
+}
+
 const BUILTIN_ROWS: Record<BuiltinSidebarNavId, ComponentType<SidebarNavRowProps>> = {
   "new-workspace": SidebarNewWorkspaceRow,
   history: SidebarHistoryRow,
   search: SidebarSearchRow,
   schedules: SidebarSchedulesRow,
+  yuyi: SidebarYuyiRow,
 };
 
 const styles = StyleSheet.create({

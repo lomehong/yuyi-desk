@@ -1,4 +1,25 @@
 export const en = {
+  yuyi: {
+    title: "Yuyi",
+    tabStatus: "Status",
+    tabInbox: "Inbox",
+    tabPeers: "Peers",
+    refresh: "Refresh",
+    connected: "Connected",
+    yes: "Yes",
+    no: "No",
+    hub: "Hub",
+    device: "Device",
+    principal: "Principal",
+    bindings: "Bindings",
+    inboxEmpty: "Inbox is empty",
+    markAllRead: "Mark all read",
+    markedRead: "Cleared",
+    peersEmpty: "No peers visible",
+    from: "From",
+    errorInactive: "Yuyi link inactive",
+    errorNoHttp: "Yuyi requires a direct daemon connection",
+  },
   paneFind: {
     connectionFailure: "Could not search this chat. Check the host connection and retry.",
     historyChangedFailure: "The chat changed while searching. Search again.",
@@ -1260,6 +1281,7 @@ export const en = {
       sessions: "History",
       search: "Search",
       schedules: "Schedules",
+      yuyi: "Yuyi",
     },
     worktreeSetup: {
       title: "Set up worktree scripts",

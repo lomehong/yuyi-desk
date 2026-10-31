@@ -2,6 +2,27 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const fr: TranslationResources = {
+  yuyi: {
+    title: "Yuyi",
+    tabStatus: "Status",
+    tabInbox: "Inbox",
+    tabPeers: "Peers",
+    refresh: "Refresh",
+    connected: "Connected",
+    yes: "Yes",
+    no: "No",
+    hub: "Hub",
+    device: "Device",
+    principal: "Principal",
+    bindings: "Bindings",
+    inboxEmpty: "Inbox is empty",
+    markAllRead: "Mark all read",
+    markedRead: "Cleared",
+    peersEmpty: "No peers visible",
+    from: "From",
+    errorInactive: "Yuyi link inactive",
+    errorNoHttp: "Yuyi requires a direct daemon connection",
+  },
   paneFind: {
     connectionFailure:
       "Impossible de rechercher dans cette conversation. Vérifiez la connexion à l’hôte et réessayez.",
@@ -1282,6 +1303,7 @@ export const fr: TranslationResources = {
       sessions: "Historique",
       search: "Recherche",
       schedules: "Planifications",
+      yuyi: "Yuyi",
     },
     worktreeSetup: {
       title: "Configurer les scripts de worktree",

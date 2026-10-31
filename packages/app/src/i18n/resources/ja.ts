@@ -2,6 +2,27 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
+  yuyi: {
+    title: "Yuyi",
+    tabStatus: "Status",
+    tabInbox: "Inbox",
+    tabPeers: "Peers",
+    refresh: "Refresh",
+    connected: "Connected",
+    yes: "Yes",
+    no: "No",
+    hub: "Hub",
+    device: "Device",
+    principal: "Principal",
+    bindings: "Bindings",
+    inboxEmpty: "Inbox is empty",
+    markAllRead: "Mark all read",
+    markedRead: "Cleared",
+    peersEmpty: "No peers visible",
+    from: "From",
+    errorInactive: "Yuyi link inactive",
+    errorNoHttp: "Yuyi requires a direct daemon connection",
+  },
   paneFind: {
     connectionFailure:
       "このチャットを検索できませんでした。ホストへの接続を確認して再試行してください。",
@@ -1266,6 +1287,7 @@ export const ja: TranslationResources = {
       sessions: "履歴",
       search: "検索",
       schedules: "スケジュール",
+      yuyi: "Yuyi",
     },
     worktreeSetup: {
       title: "ワークツリースクリプトを設定",

@@ -10,6 +10,7 @@ import {
   Gauge,
   History,
   Plus,
+  Radio,
   Search,
   type LucideIcon,
 } from "lucide-react-native";
@@ -44,6 +45,7 @@ const BUILTIN_ICONS: Record<BuiltinSidebarItemId, LucideIcon> = {
   history: History,
   search: Search,
   schedules: CalendarClock,
+  yuyi: Radio,
   usage: Gauge,
 };
 

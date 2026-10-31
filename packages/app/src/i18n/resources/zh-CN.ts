@@ -2,6 +2,27 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  yuyi: {
+    title: "御驿",
+    tabStatus: "状态",
+    tabInbox: "收件箱",
+    tabPeers: "同伴",
+    refresh: "刷新",
+    connected: "已连接",
+    yes: "是",
+    no: "否",
+    hub: "Hub",
+    device: "设备",
+    principal: "主体",
+    bindings: "身份绑定",
+    inboxEmpty: "收件箱为空",
+    markAllRead: "全部标为已读",
+    markedRead: "已清读",
+    peersEmpty: "暂无可见同伴",
+    from: "来自",
+    errorInactive: "御驿链接未激活",
+    errorNoHttp: "御驿需要直连 daemon 的主机连接",
+  },
   paneFind: {
     connectionFailure: "无法搜索此聊天。请检查主机连接后重试。",
     historyChangedFailure: "搜索期间聊天已更改。请重新搜索。",
@@ -1244,6 +1265,7 @@ export const zhCN: TranslationResources = {
       sessions: "历史",
       search: "搜索",
       schedules: "计划",
+      yuyi: "御驿",
     },
     worktreeSetup: {
       title: "设置 worktree scripts",

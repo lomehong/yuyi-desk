@@ -420,6 +420,15 @@ export function buildHostSessionsRoute(serverId: string) {
   return `${base}/sessions` as const;
 }
 
+// yuyi fork: 御驿界面（状态/收件箱/同伴）
+export function buildHostYuyiRoute(serverId: string) {
+  const base = buildHostRootRoute(serverId);
+  if (base === "/") {
+    return "/" as const;
+  }
+  return `${base}/yuyi` as const;
+}
+
 export function buildSessionsRoute() {
   return "/sessions" as const;
 }

@@ -11,7 +11,7 @@ const { join } = require("node:path");
 
 const text = process.argv[2] || "M1 自环验收：请只回复「M1-OK」三个字符，不要做任何其他事。";
 const waitMs = Number(process.argv[3] || 300_000);
-const TARGET = "opencode-DESKTOP-8KBIJE2:0b385b15-2e0f-4d62-83a9-9269f8abd44b";
+const TARGET = "opencode-DESKTOP-8KBIJE2:a2a727a7-cb77-416f-a082-5730443d4744";
 const myName = "sender-probe";
 const device = `${hostname()}-e2e-sender`.toLowerCase();
 
@@ -36,7 +36,7 @@ const hub = new HubClient({
   instanceID: `e2e_${Date.now().toString(36)}`,
   token: self.token,
   agentKind: "e2e-sender",
-  capabilities: { wake: "none" },
+  capabilities: { wake: true },
   onDeliver: async (message) => {
     console.error(`REPLY_FROM=${message.from.name || "?"} replyTo=${message.replyTo || "-"}`);
     console.error(`REPLY_TEXT=${message.text}`);
@@ -63,7 +63,7 @@ const waitConn = setInterval(() => {
       from: { device, sessionID: `${myName}:e2e`, name: myName },
       to: { target: TARGET },
       time: Date.now(),
-      expectReply: true,
+      expectReply: true,      taskId: "e2e-task-" + Date.now().toString(36),
     })
     .then((ack) => {
       console.error(`SENT ok=${ack.ok} detail=${ack.detail || "-"}`);

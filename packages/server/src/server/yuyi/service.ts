@@ -225,10 +225,15 @@ export class YuyiService {
   private async autoReply(binding: YuyiBinding, message: YuyiMessage): Promise<void> {
     const manager = this.opts.agentManager;
     try {
+      this.logger.info({ replyTo: message.id }, "Yuyi auto-reply wait start");
       await waitForAgentRunStartWithTimeout(manager, binding.paseoAgentId);
       const wait = await manager.waitForAgentEvent(binding.paseoAgentId, {
         waitForActive: true,
       });
+      this.logger.info(
+        { status: wait.status, permission: Boolean(wait.permission) },
+        "Yuyi auto-reply wait done",
+      );
       const text = wait.permission
         ? "（执行已暂停：等待权限确认，暂无最终结果）"
         : (wait.lastMessage?.trim() || "（执行完成，无文本输出）");
@@ -252,9 +257,10 @@ export class YuyiService {
         ...(typeof message.hopCount === "number" ? { hopCount: message.hopCount } : {}),
       };
       const ack = await this.link.sendFromBinding(binding, reply);
-      if (!ack.ok) {
-        this.logger.warn({ detail: ack.detail }, "Yuyi auto-reply send failed");
-      }
+      this.logger.info(
+        { ok: ack.ok, detail: ack.detail },
+        ack.ok ? "Yuyi auto-reply sent" : "Yuyi auto-reply send failed",
+      );
     } catch (error) {
       this.logger.warn(
         { err: error, paseoAgentId: binding.paseoAgentId },

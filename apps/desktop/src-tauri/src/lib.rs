@@ -18,6 +18,10 @@ use tauri::{AppHandle, Manager, RunEvent};
 
 type DaemonSlot = Arc<Mutex<Option<Child>>>;
 
+/// 已解析的 daemon 配置快照（ensure_daemon 时填入；invoke 面用）
+#[derive(Clone, Default)]
+pub struct DaemonConfigSlot(Arc<Mutex<Option<DaemonConfig>>>);
+
 #[tauri::command]
 fn app_identity() -> &'static str {
     "yuyi-desk/0.2.0"
@@ -28,10 +32,51 @@ fn daemon_status(state: tauri::State<DaemonChild>) -> bool {
     state.0.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
+/// web 垫片用：daemon 连接信息（host/port/日志路径/数据目录）
+#[tauri::command]
+fn yuyi_daemon_info(state: tauri::State<DaemonConfigSlot>) -> Result<serde_json::Value, String> {
+    let guard = state.0.lock().map_err(|_| "config slot poisoned")?;
+    let cfg = guard.as_ref().ok_or_else(|| "daemon config not loaded".to_string())?;
+    let log_path = exe_dir()
+        .map(|d| d.join("yuyi-daemon.log").display().to_string())
+        .unwrap_or_default();
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(|h| format!("{}/.paseo", h.replace('\\', "/")))
+        .unwrap_or_default();
+    Ok(serde_json::json!({
+        "host": cfg.host(),
+        "port": cfg.port(),
+        "logPath": log_path,
+        "home": home,
+    }))
+}
+
+/// web 垫片用：读 daemon 日志尾部
+#[tauri::command]
+fn yuyi_daemon_log_tail(max_bytes: Option<u32>) -> Result<serde_json::Value, String> {
+    let dir = exe_dir().ok_or_else(|| "no exe dir".to_string())?;
+    let path = dir.join("yuyi-daemon.log");
+    if !path.exists() {
+        return Ok(serde_json::json!({ "logPath": path.display().to_string(), "contents": "" }));
+    }
+    let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+    let max = max_bytes.unwrap_or(64 * 1024) as u64;
+    let start = meta.len().saturating_sub(max);
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    use std::io::{Read, Seek, SeekFrom};
+    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "logPath": path.display().to_string(),
+        "contents": String::from_utf8_lossy(&buf),
+    }))
+}
+
 #[derive(serde::Deserialize, Default, Clone)]
 #[serde(default)]
-struct DaemonConfig {
-    /// daemon TCP 地址（存活探测 + 自动拉起判定）
+struct DaemonConfig {    /// daemon TCP 地址（存活探测 + 自动拉起判定）
     host: String,
     port: u16,
     /// 拉起命令（空 = 不自动拉起，仅连接已有 daemon）
@@ -162,6 +207,10 @@ fn ensure_daemon(app: &AppHandle) {
         }
         return;
     };
+    let config_slot: tauri::State<DaemonConfigSlot> = app.state();
+    if let Ok(mut guard) = config_slot.0.lock() {
+        *guard = Some(cfg.clone());
+    }
     if port_alive(&cfg) {
         return;
     }
@@ -188,8 +237,14 @@ pub fn run() {
     let slot: DaemonSlot = Arc::default();
     let exit_slot = Arc::clone(&slot);
     let app = tauri::Builder::default()
-        .manage(DaemonChild(slot))
-        .invoke_handler(tauri::generate_handler![app_identity, daemon_status])
+        .manage(DaemonChild(Arc::clone(&slot)))
+        .manage(DaemonConfigSlot::default())
+        .invoke_handler(tauri::generate_handler![
+            app_identity,
+            daemon_status,
+            yuyi_daemon_info,
+            yuyi_daemon_log_tail
+        ])
         .setup(move |app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || ensure_daemon(&handle));

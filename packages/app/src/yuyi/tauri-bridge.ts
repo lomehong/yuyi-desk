@@ -39,6 +39,20 @@ function isTauriRuntime(): boolean {
   return getTauriWindow() !== null;
 }
 
+/** Tauri 2 的 invoke 在 __TAURI__.core.invoke（旧版在顶层，两者都试） */
+function getTauriCore(): ((cmd: string, args?: unknown) => Promise<unknown>) | null {
+  const tauri = (globalThis as Record<string, unknown>).__TAURI__ as
+    | { core?: { invoke?: unknown }; invoke?: unknown }
+    | undefined;
+  if (typeof tauri?.core?.invoke === "function") {
+    return tauri.core.invoke as never;
+  }
+  if (typeof tauri?.invoke === "function") {
+    return tauri.invoke as never;
+  }
+  return null;
+}
+
 /** Electron DesktopWindowBridge 的 Tauri 适配（onResized 用轮询合成） */
 function createWindowBridge() {
   const tw = () => getTauriWindow();
@@ -93,6 +107,90 @@ export function installTauriDesktopBridge(): void {
     platform: navigator.userAgent.includes("Mac OS") ? "darwin" : "windows",
     windowChromeMode: "custom-windows",
     window: { getCurrentWindow: createWindowBridge },
+    invoke: createInvokeBridge(),
+  };
+}
+
+/**
+ * Electron invoke() 命令面的 Tauri 适配——app 的桌面启动流程
+ * （daemon-start-service）靠这几个命令评估设置并拿到 daemon 连接信息。
+ * daemon 本体由 Tauri（Rust）拉起；这里只向 web 层如实报告它的状态。
+ */
+function createInvokeBridge() {
+  async function daemonInfo(): Promise<{ host: string; port: number; logPath: string; home: string }> {
+    const invoke = getTauriCore();
+    if (!invoke) {
+      throw new Error("Tauri invoke unavailable");
+    }
+    return (await invoke("yuyi_daemon_info")) as never;
+  }
+
+  async function daemonStatusResponse(): Promise<unknown> {
+    const info = await daemonInfo();
+    let serverId = "";
+    let hostname = "";
+    let version: string | null = null;
+    let state: "running" | "stopped" = "stopped";
+    let error: string | null = null;
+    // daemon 由壳异步拉起，web 层可能先到——轮询等待其就绪（≤30s）
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const res = await fetch(`http://${info.host}:${info.port}/api/status`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        const body = (await res.json()) as { serverId?: string; hostname?: string; version?: string };
+        serverId = body.serverId ?? "";
+        hostname = body.hostname ?? "";
+        version = body.version ?? null;
+        if (serverId) {
+          state = "running";
+          error = null;
+          break;
+        }
+      } catch (e) {
+        error = String(e);
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return {
+      serverId,
+      status: state,
+      listen: `${info.host}:${info.port}`,
+      hostname,
+      pid: null,
+      home: info.home,
+      version,
+      desktopManaged: true,
+      ownedByDesktop: true,
+      startedAt: null,
+      error,
+    };
+  }
+
+  return async function invoke(command: string): Promise<unknown> {
+    switch (command) {
+      case "get_desktop_settings":
+        return {
+          daemon: { manageBuiltInDaemon: true, keepRunningAfterQuit: false },
+          notifications: { playSound: false },
+        };
+      case "desktop_daemon_status":
+      case "start_desktop_daemon":
+      case "stop_desktop_daemon":
+      case "restart_desktop_daemon":
+        return daemonStatusResponse();
+      case "desktop_daemon_logs": {
+        const tauriCore = getTauriCore();
+        if (!tauriCore) {
+          throw new Error("Tauri invoke unavailable");
+        }
+        return (await tauriCore("yuyi_daemon_log_tail", { maxBytes: 64 * 1024 })) as never;
+      }
+      case "cli_daemon_status":
+        return "running";
+      default:
+        throw new Error(`Desktop command not available in yuyi shell: ${command}`);
+    }
   };
 }
 

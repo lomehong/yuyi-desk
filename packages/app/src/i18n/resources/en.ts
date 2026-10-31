@@ -1275,7 +1275,7 @@ export const en = {
       discord: "Discord",
       github: "Create GitHub issue",
       whatsNew: "What's new",
-      appName: "Paseo",
+      appName: "Yuyi Desk",
     },
     sections: {
       sessions: "History",

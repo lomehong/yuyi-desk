@@ -34,6 +34,8 @@ const injected = `<script>window.__PASEO_INITIAL_DAEMON_CONNECTION__=${JSON.stri
 let html = readFileSync(indexPath, "utf8");
 if (!html.includes("__PASEO_INITIAL_DAEMON_CONNECTION__")) {
   html = html.replace(/<head([^>]*)>/i, `<head$1>${injected}`);
-  writeFileSync(indexPath, html);
 }
+// 御驿品牌：壳内标题改写（不动 packages/app 的上游标识，改动收敛在 web-dist）
+html = html.replace(/<title>[^<]*<\/title>/i, "<title>御驿 Yuyi Desk</title>");
+writeFileSync(indexPath, html);
 console.log(`[sync-web] web-dist 就绪（初始 daemon: ${listen}, tls: ${useTls}）`);

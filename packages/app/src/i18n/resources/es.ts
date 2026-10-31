@@ -1303,7 +1303,7 @@ export const es: TranslationResources = {
       discord: "Discord",
       github: "Crear incidencia en GitHub",
       whatsNew: "Novedades",
-      appName: "Paseo",
+      appName: "Yuyi Desk",
     },
     sections: {
       sessions: "Historial",

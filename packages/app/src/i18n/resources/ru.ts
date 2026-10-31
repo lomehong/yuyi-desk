@@ -1285,7 +1285,7 @@ export const ru: TranslationResources = {
       discord: "Discord",
       github: "Создать issue на GitHub",
       whatsNew: "Что нового",
-      appName: "Paseo",
+      appName: "Yuyi Desk",
     },
     sections: {
       sessions: "История",

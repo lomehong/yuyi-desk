@@ -1274,7 +1274,7 @@ export const ko: TranslationResources = {
       discord: "Discord",
       github: "GitHub 이슈 만들기",
       whatsNew: "새로운 소식",
-      appName: "Paseo",
+      appName: "Yuyi Desk",
     },
     sections: {
       sessions: "기록",

@@ -1293,7 +1293,7 @@ export const ptBR: TranslationResources = {
       discord: "Discord",
       github: "Criar issue no GitHub",
       whatsNew: "Novidades",
-      appName: "Paseo",
+      appName: "Yuyi Desk",
     },
     sections: {
       sessions: "Histórico",

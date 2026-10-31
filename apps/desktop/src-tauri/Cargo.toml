@@ -1,0 +1,21 @@
+[package]
+name = "yuyi-desk"
+version = "0.1.0"
+description = "御驿 Yuyi Desk — Tauri desktop shell"
+edition = "2021"
+license = "Apache-2.0"
+
+# Tauri 门面：先交付「连接已有 daemon」的壳；sidecar（随包 daemon）与
+# 初始连接注入在 M2 后续补齐。见 FORK.md 里程碑。
+
+[lib]
+name = "yuyi_desk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

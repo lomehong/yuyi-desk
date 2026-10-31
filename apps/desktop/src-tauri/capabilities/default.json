@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "御驿 Desk 默认能力：仅核心窗口操作（纯壳，M2a 不开额外权限面）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

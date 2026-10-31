@@ -1,0 +1,17 @@
+{
+  "name": "@yuyi/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "御驿 Yuyi Desk — Tauri 桌面壳（装载 packages/app 的 Expo web 构建）",
+  "type": "module",
+  "scripts": {
+    "sync-web": "node scripts/sync-web.mjs",
+    "icon": "tauri icon app-icon.png",
+    "dev": "npm run sync-web && tauri dev",
+    "build": "npm run sync-web && tauri build",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0"
+  }
+}

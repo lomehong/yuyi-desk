@@ -809,6 +809,11 @@ export async function createPaseoDaemon(
   const fixedAllowedOrigins = [
     // Packaged desktop renderers use the custom paseo:// protocol scheme.
     "paseo://app",
+    // yuyi fork: Tauri desktop shell origins (Tauri 2 serves the bundled
+    // frontend from tauri.localhost — https on Windows by default).
+    "https://tauri.localhost",
+    "http://tauri.localhost",
+    "tauri://localhost",
     // For TCP, add localhost variants
     ...(listenTarget.type === "tcp"
       ? [

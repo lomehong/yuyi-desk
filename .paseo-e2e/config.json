@@ -1,0 +1,22 @@
+{
+  "$schema": "https://paseo.sh/schemas/paseo.config.v1.json",
+  "version": 1,
+  "daemon": {
+    "listen": "127.0.0.1:16967",
+    "relay": { "enabled": false }
+  },
+  "yuyi": {
+    "enabled": true,
+    "hub": "wss://hub.qianji.io",
+    "principal": "agent",
+    "injectEnv": false,
+    "agents": [
+      {
+        "name": "opencode-DESKTOP-8KBIJE2",
+        "agentId": "88efe2d1-354a-4247-a68b-c701078039ad",
+        "token": "agent-873f9ca78e3f9c7d.f1aecbb22166f6695a36e2ba557565390471be52c3aa28b389b8196aefc09480",
+        "match": { "provider": "claude" }
+      }
+    ]
+  }
+}

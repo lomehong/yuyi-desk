@@ -70,10 +70,8 @@ export class YuyiService {
       log: (msg) => this.logger.info(msg),
       deliverToAgent: (binding, message) => this.deliverToAgent(binding, message),
     });
-    // 初始绑定（subscribe 的 replayState 也会重放，但显式扫一遍防御内部跳过）
-    for (const agent of this.opts.agentManager.listAgents()) {
-      this.rebindAgent(agent as AgentSnapshotLike);
-    }
+    // 初始绑定：持久层扫描（注册表懒加载，listAgents 只含已初始化 agent）+ 内存扫描
+    this.rescanBindings();
     this.unsubscribeAgents = this.opts.agentManager.subscribe((event: AgentEvent) => {
       if (event.type === "agent_state") {
         this.rebindAgent(event.agent as AgentSnapshotLike);
@@ -81,6 +79,11 @@ export class YuyiService {
         this.onAgentRemoved(event.agentId);
       }
     });
+    // 注册表恢复可能在 service.start() 之后完成且不逐个发事件——延迟重扫兜底
+    for (const delay of [5_000, 20_000]) {
+      const t = setTimeout(() => this.rescanBindings(), delay);
+      t.unref?.();
+    }
     this.link.start();
     this.logger.info(
       {
@@ -121,6 +124,28 @@ export class YuyiService {
 
   // ---- 内部 ----
 
+  /** 持久层 + 内存全量重扫绑定 */
+  private async rescanBindings(): Promise<void> {
+    try {
+      const records = await this.opts.agentStorage.list();
+      for (const record of records) {
+        if (record.internal || record.archivedAt) {
+          continue;
+        }
+        this.rebindAgent({
+          id: record.id,
+          provider: record.provider,
+          config: { title: record.title ?? null },
+        });
+      }
+    } catch (error) {
+      this.logger.warn({ err: error }, "Yuyi storage rescan failed");
+    }
+    for (const agent of this.opts.agentManager.listAgents()) {
+      this.rebindAgent(agent as AgentSnapshotLike);
+    }
+  }
+
   /** agent 出现/变化 → 重新匹配映射表（不命中则解绑） */
   private rebindAgent(agent: AgentSnapshotLike): void {
     if (!this.link || agent.internal) {
@@ -142,8 +167,15 @@ export class YuyiService {
       }
       return;
     }
+    const prev = this.byPaseo.get(agent.id);
     const binding = this.link.bind(mapping, agent.id, agent.config?.title);
     this.byPaseo.set(agent.id, binding);
+    if (!prev || prev.name !== mapping.name) {
+      this.logger.info(
+        { paseoAgentId: agent.id, provider: agent.provider, yuyiName: mapping.name },
+        "Yuyi agent bound",
+      );
+    }
   }
 
   private onAgentRemoved(agentId: string): void {

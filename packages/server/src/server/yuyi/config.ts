@@ -49,6 +49,12 @@ export const YuyiConfigSchema = z.object({
   token: z.string().optional(),
   /** hello.agentKind（Hub 侧指标分组）；缺省 "yuyi-desk" */
   agentKind: z.string().optional(),
+  /**
+   * 连接主体：缺省 "device"（目标形态，设备凭证 + agent/register）。
+   * "agent" = 兼容模式：单身份连接（token 用 agents[0].token），roster 走
+   * updateRoster 上行——用于 Hub 部署尚不支持设备主体路径时的过渡。
+   */
+  principal: z.enum(["device", "agent"]).optional(),
   /** 是否向被管理的 agent 注入 YUYI_* 环境变量；缺省 true */
   injectEnv: z.boolean().optional(),
   agents: z.array(YuyiAgentMappingSchema),
@@ -64,16 +70,20 @@ export interface ResolvedYuyiConfig {
   token: string | undefined;
   agentKind: string;
   injectEnv: boolean;
+  principal: "device" | "agent";
   agents: YuyiAgentMapping[];
 }
 
 export function resolveYuyiConfig(config: YuyiConfig): ResolvedYuyiConfig {
+  const principal = config.principal ?? "device";
   return {
     hub: config.hub,
     device: config.device?.trim() || `${hostname()}-desk`,
+    // agent 模式连接 token = 身份 token；device 模式 = 设备凭证（缺省回退 agents[0]）
     token: config.token?.trim() || config.agents[0]?.token,
     agentKind: config.agentKind?.trim() || "yuyi-desk",
     injectEnv: config.injectEnv !== false,
+    principal,
     agents: config.agents,
   };
 }

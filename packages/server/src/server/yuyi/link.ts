@@ -72,8 +72,9 @@ export class YuyiLink {
       token: config.token,
       agentKind: config.agentKind,
       adapterVersion: "yuyi-desk-m1",
-      // 设备主体：本连接的身份是设备，不是任何 Agent；Agent 身份经 agent/register 逐个验证。
-      principal: "device",
+      // 缺省设备主体（Agent 身份经 agent/register 逐个验证）；"agent" 为兼容模式：
+      // 单身份连接，roster 经 updateRoster 上行（Hub 部署不支持设备路径时过渡）。
+      principal: config.principal,
       capabilities: { wake: true },
       log: this.opts.log,
       // 建连/重连后重新注册全部本地 Agent（注册不跨连接存活）
@@ -129,7 +130,7 @@ export class YuyiLink {
       }
     }
     const sessions: RosterSession[] = [
-      { sessionID: paseoAgentId, ...(title ? { title } : {}) },
+      { sessionID: paseoAgentId, name: mapping.name, ...(title ? { title } : {}) },
     ];
     const binding: YuyiBinding = {
       agentId: mapping.agentId,
@@ -140,7 +141,15 @@ export class YuyiLink {
     };
     this.byName.set(mapping.name, binding);
     this.byPaseo.set(paseoAgentId, binding);
-    void this.registerAgent(binding);
+    if (this.hub?.connectionPrincipal === "device") {
+      void this.registerAgent(binding);
+    } else if (this.hub?.connected) {
+      // agent 兼容模式：roster 上行（会话 ID 合成 `${name}:${paseoAgentId}`，
+      // 与 send 的 from.sessionID 同形态）
+      this.hub.updateRoster(
+        sessions.map((s) => ({ ...s, sessionID: `${binding.name}:${s.sessionID}` })),
+      );
+    }
     return binding;
   }
 
@@ -168,15 +177,20 @@ export class YuyiLink {
     binding: YuyiBinding,
     message: YuyiMessage,
   ): Promise<{ ok: boolean; detail?: string }> {
-    if (!this.hub?.connected) {
+    const hub = this.hub;
+    if (!hub?.connected) {
       return { ok: false, detail: "yuyi hub offline" };
     }
-    const from = {
-      agentId: binding.agentId,
-      name: binding.name,
-      sessionID: `${binding.name}:${binding.paseoAgentId}`,
-    };
-    return this.hub.send(message, from);
+    // 设备连接必须声明行动 Agent；agent 兼容模式连接自带身份，忽略该字段
+    const from =
+      hub.connectionPrincipal === "device"
+        ? {
+            agentId: binding.agentId,
+            name: binding.name,
+            sessionID: `${binding.name}:${binding.paseoAgentId}`,
+          }
+        : undefined;
+    return hub.send(message, from);
   }
 
   /** 向 Hub 注册一个本地 Agent（Hub 侧独立跑御符 verify，D9） */
@@ -192,7 +206,11 @@ export class YuyiLink {
     try {
       const r = await hub.registerAgent(binding.token, sessions);
       if (r.ok) {
+        const changed = !this.registered.get(binding.agentId);
         this.registered.set(binding.agentId, true);
+        if (changed) {
+          this.opts.log(`[yuyi] Agent ${binding.name} 注册成功（${sessions.length} 会话）`);
+        }
       } else {
         this.registered.delete(binding.agentId);
         this.opts.log(`[yuyi] 注册 Agent ${binding.name} 被拒：${r.detail ?? "unknown"}`);
@@ -211,30 +229,23 @@ export class YuyiLink {
   }
 
   /**
-   * to.target 解析出御驿名（支持 "name" / "agentId:name" / "device:name:session"）。
-   * 移植自 hub-link.resolveTargetName。
+   * to.target 解析出御驿名。支持 "name" / "name:sessionID" / "agentId:name"
+   * / "agentId:name:sessionID" 等形态：按段探测 byName，第一个命中的段即名字
+   * （agentId/device 前缀不会命中 byName；名字本身不含 ':'）。
    */
   private resolveTargetName(target: string): string | undefined {
     if (!target || target === "*") {
       return undefined;
     }
-    // 去设备前缀
-    const afterDevice = target.includes(":") ? target.slice(target.indexOf(":") + 1) : target;
-    // 去 agentId 前缀（recipientID 格式 agentId:name）
-    const maybeName = afterDevice.includes(":")
-      ? afterDevice.slice(afterDevice.indexOf(":") + 1)
-      : afterDevice;
-    const name = maybeName.split(":")[0]?.trim();
-    if (!name) {
-      return undefined;
+    if (this.byName.has(target)) {
+      return target;
     }
-    if (this.byName.has(name)) {
-      return name;
+    const parts = target.split(":");
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (this.byName.has(parts[i])) {
+        return parts[i];
+      }
     }
-    // 合成 sessionID 形态 name:paseoAgentId
-    if (maybeName.includes(":")) {
-      return maybeName.split(":")[0]?.trim();
-    }
-    return name;
+    return undefined;
   }
 }

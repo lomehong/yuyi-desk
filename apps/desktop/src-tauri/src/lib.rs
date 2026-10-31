@@ -76,9 +76,23 @@ fn exe_dir() -> Option<PathBuf> {
 }
 
 fn read_daemon_config() -> Option<DaemonConfig> {
-    let path = exe_dir()?.join("yuyi-daemon.json");
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    let dir = exe_dir()?;
+    let path = dir.join("yuyi-daemon.json");
+    let text = fs::read_to_string(&path).ok()?;
+    // 分发模板占位符：安装后首启解析并写回（用户可直接改端口/路径）。
+    // 路径统一正斜杠——原始反斜杠（\U、\Y…）是非法 JSON 转义会让解析失败。
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(|h| format!("{}/.paseo", h.replace('\\', "/")))
+        .unwrap_or_else(|_| ".paseo".to_string());
+    let install = dir.display().to_string().replace('\\', "/");
+    let resolved = text
+        .replace("{{INSTALL_DIR}}", &install)
+        .replace("{{PASEO_HOME}}", &home);
+    if resolved != text {
+        let _ = fs::write(&path, &resolved);
+    }
+    serde_json::from_str(&resolved).ok()
 }
 
 fn port_alive(cfg: &DaemonConfig) -> bool {
@@ -95,15 +109,17 @@ fn spawn_daemon(cfg: &DaemonConfig) -> Option<Child> {
     }
     let dir = exe_dir()?;
     let log_path = dir.join("yuyi-daemon.log");
-    let Ok(log) = fs::OpenOptions::new().create(true).append(true).open(&log_path) else {
-        return None;
-    };
+    let mut log = fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
     let mut cmd = Command::new(&cfg.command);
     cmd.args(&cfg.args)
         .envs(&cfg.env)
         .current_dir(&dir)
-        .stdout(Stdio::from(log.try_clone().ok()?))
-        .stderr(Stdio::from(log));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(l) = log.as_ref() {
+        cmd.stdout(Stdio::from(l.try_clone().ok()?));
+        cmd.stderr(Stdio::from(l.try_clone().ok()?));
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -113,7 +129,15 @@ fn spawn_daemon(cfg: &DaemonConfig) -> Option<Child> {
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(err) => {
-            eprintln!("[yuyi-desk] daemon spawn failed: {err}");
+            let msg = format!(
+                "[yuyi-desk] daemon spawn FAILED: {err} (command={} args={:?})\n",
+                cfg.command, cfg.args
+            );
+            eprintln!("{msg}");
+            if let Some(mut l) = log {
+                use std::io::Write;
+                let _ = l.write_all(msg.as_bytes());
+            }
             return None;
         }
     };
@@ -127,6 +151,15 @@ fn spawn_daemon(cfg: &DaemonConfig) -> Option<Child> {
 
 fn ensure_daemon(app: &AppHandle) {
     let Some(cfg) = read_daemon_config() else {
+        // GUI 进程无 stderr：解析失败也落盘，便于远程排查
+        if let Some(dir) = exe_dir() {
+            if let Ok(mut l) = fs::OpenOptions::new().create(true).append(true)
+                .open(dir.join("yuyi-daemon.log"))
+            {
+                use std::io::Write;
+                let _ = l.write_all(b"[yuyi-desk] yuyi-daemon.json missing or unparsable\n");
+            }
+        }
         return;
     };
     if port_alive(&cfg) {

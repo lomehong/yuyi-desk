@@ -29,6 +29,10 @@
     "active": true,
     "targets": ["nsis"],
     "publisher": "Qianji Yuyi",
+    "resources": {
+      "resources/": "./",
+      "resources/yuyi-daemon.json": "./yuyi-daemon.json"
+    },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico", "icons/icon.png"]
   }
 }

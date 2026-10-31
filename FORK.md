@@ -22,9 +22,38 @@
 
 ## 里程碑 / Milestones
 
-- **M1 daemon 内核**：设备主体连御驿 Hub（principal=device + agent/register，移植 Yuyi `packages/agent` 的 hub-link）；
-  per-agent 御符凭证 env 注入 + yuyi_* MCP 工具注入；notify→会话注入+自动回信；roster 上行。
-- **M2 客户端**：Tauri 壳 + 品牌化 + 原生御驿界面（inbox/peers/任务）；UI 复用 `packages/app` 的 Expo web 构建。
-- **M3 收束**：yuyi-agent 吸收合并、relay 取舍、分发链路。
+- **M1 daemon 内核** ✅（已验收，生产 Hub 双向）：设备主体/兼容连接、notify→注入→自动回信、
+  yuyi_* MCP 出站（/mcp/yuyi）、roster、per-agent env。commit 7066079f1 起。
+- **M2 客户端** ✅：Tauri 2 壳（无边框、「容器+卡片」帧、顶栏开关/三键、daemon 随包自启）、
+  读 API（/api/yuyi/status|peers|inbox|ack）、原生御驿界面（状态/收件箱/同伴，9 语言）。
+- **M3 收束**（进行中）：
+  - 分发链路：NSIS 安装包 + 捆绑运行时（node.exe + server dist + yuyi-daemon.json 模板，
+    `{{INSTALL_DIR}}`/`{{PASEO_HOME}}` 占位符安装后首启解析）。**待办**：daemon 生产
+    node_modules 依赖树捆绑（现包不含依赖，daemon 拉起需开发环境）；自更新（updater 签名）。
+  - yuyi-agent 吸收合并：**前置 = Hub 部署 device-verify 修复**。合并内容：设备凭证代领
+    （读 ~/.yuyi/yuyi-agent/device-credential → allowed_agents 自动生成 yuyi.agents 映射）、
+    device/control 落地（YuyiLink 已留回绝桩，接实现：terminate→archive、block→暂停注入）、
+    状态闸门对齐 yuyi-agent state.json。落点：YuyiService 扩展。
+  - relay 取舍：**保留**上游 relay（packages/relay + daemon.relay 配置）。它是手机/远程客户端
+    连 daemon 的 E2E 传输层，与御驿 Hub（Agent 消息面）无概念冲突；移动端接入时直接用，
+    后续若换御驿自有通道再评估。
+
+## Hub 部署 device-verify 诊断（M1 发现，待部署侧处理）
+
+现象：部署 Hub（wss://hub.qianji.io）设备主体 hello 报 `identity service unavailable`
+（4503）；同机 agent 主体路径正常；本机直连御符 `POST /api/v1/auth/device/verify` 返回
+200 `{valid:true, device_id, owner_user_id, allowed_agents...}`（数据完整）。
+
+判断：非网络整机问题（agent verify 同主机不同端点正常）；最可能是**部署 Hub 与御符的
+版本错位**——部署实例的 verifyDevice 实现（请求体/端点）与当前御符不匹配（如旧实现触发
+yufu 400 → 被归为 unavailable），或部署实例到御符走了不同内网路径。
+
+处理清单（需部署侧）：
+1. 部署机 `curl -s -X POST -H 'Content-Type: application/json' -d '{"token":"<dev-*>"}'`
+   `https://yufu.qianji.io/api/v1/auth/device/verify` 复测出站；
+2. 查 Hub 日志 `[hub] 身份服务无法验证设备连接` 行（verifyDevice 的 reason 已随行输出）；
+3. 核对部署 Hub 版本 vs 本仓库 hub/yufu-client.ts 的 verifyDevice，升级到一致版本；
+4. 修复后 fork 侧把 `config.json` 的 `yuyi.principal` 从 "agent" 切回 "device"（缺省），
+   并推进 yuyi-agent 吸收合并。
 
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。

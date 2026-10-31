@@ -1,5 +1,6 @@
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { useHostFeature } from "@/runtime/host-features";
+import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 import {
   AssistantFileLinkResolverProvider,
   createInlinePathOpener,
@@ -3300,7 +3301,8 @@ function WorkspaceScreenContent({
         <ScreenHeader
           left={
             <>
-              <SidebarMenuToggle />
+              {/* yuyi fork (M2e): Tauri 帧模式下收起/展开由窗口顶栏左上角承担 */}
+              {!isYuyiTauriShell() && <SidebarMenuToggle />}
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}

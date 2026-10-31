@@ -5,6 +5,7 @@ import { ScreenTitle } from "./screen-title";
 import { CompactHeader } from "./compact-header";
 import { SidebarMenuToggle } from "./sidebar-menu-toggle";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 
 interface MenuHeaderProps {
   title?: string;
@@ -21,7 +22,9 @@ export function MenuHeader({ title, rightContent, borderless }: MenuHeaderProps)
     <ScreenHeader
       left={
         <>
-          <SidebarMenuToggle />
+          {/* yuyi fork (M2e): Tauri 帧模式下收起/展开由窗口顶栏左上角承担，
+              内容头部不再重复渲染开关 */}
+          {!isYuyiTauriShell() && <SidebarMenuToggle />}
           {title && <ScreenTitle>{title}</ScreenTitle>}
         </>
       }

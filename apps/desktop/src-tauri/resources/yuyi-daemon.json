@@ -1,8 +1,0 @@
-{
-  "host": "127.0.0.1",
-  "port": 6767,
-  "command": "{{INSTALL_DIR}}/runtime/node.exe",
-  "args": ["{{INSTALL_DIR}}/runtime/server-runtime/node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js"],
-  "env": { "PASEO_HOME": "{{PASEO_HOME}}" },
-  "ready_timeout_ms": 60000
-}

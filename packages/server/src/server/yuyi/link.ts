@@ -206,6 +206,22 @@ export class YuyiLink {
     return this.hub.peers();
   }
 
+  /** 拉取 Hub 侧收件箱（recipient 缺省=连接自身身份；drain 至末尾） */
+  async inboxFetch(recipient?: string) {
+    if (!this.hub?.connected) {
+      throw new Error("yuyi hub offline");
+    }
+    return this.hub.inboxDrain(recipient, 20);
+  }
+
+  /** 标记收件箱条目已读（Hub 侧清读即删） */
+  async inboxAck(ids: string[], recipient?: string) {
+    if (!this.hub?.connected) {
+      throw new Error("yuyi hub offline");
+    }
+    return this.hub.inboxAck(ids, recipient);
+  }
+
   /** 向 Hub 注册一个本地 Agent（Hub 侧独立跑御符 verify，D9） */
   private async registerAgent(binding: YuyiBinding): Promise<void> {
     const hub = this.hub;

@@ -145,6 +145,62 @@ export class YuyiService {
     }));
   }
 
+  /** 逐绑定拉取 Hub 收件箱（全部条目）；单绑定失败不拖垮整体，记 error 字段 */
+  async inboxSnapshot(): Promise<{
+    bindings: Array<{
+      name: string;
+      recipientID: string;
+      entries: unknown[];
+      error?: string;
+    }>;
+  }> {
+    const bindings = [...this.byPaseo.values()];
+    // 收件箱是身份级（recipientID 唯一）：同身份多绑定（如多个匹配的 Paseo agent）
+    // 只取一次，避免 UI 重复渲染
+    const seenRecipients = new Set<string>();
+    const targets = bindings.filter((b) => {
+      const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
+      if (seenRecipients.has(recipientID)) return false;
+      seenRecipients.add(recipientID);
+      return true;
+    });
+    const results = await Promise.all(
+      targets.map(async (b) => {
+        const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
+        try {
+          const entries = (await this.link?.inboxFetch(recipientID)) as unknown[] | undefined;
+          return {
+            name: b.name,
+            recipientID,
+            entries: entries ?? [],
+          };
+        } catch (error) {
+          return {
+            name: b.name,
+            recipientID,
+            entries: [] as unknown[],
+            error: String(error),
+          };
+        }
+      }),
+    );
+    return { bindings: results };
+  }
+
+  /** 标记某绑定的收件箱条目已读（Hub 侧清读即删） */
+  async inboxAckFor(name: string, ids: string[]): Promise<{ ok: boolean; detail?: string }> {
+    const binding = [...this.byPaseo.values()].find((b) => b.name === name);
+    if (!binding || !this.link) {
+      return { ok: false, detail: `未找到绑定 ${name}` };
+    }
+    try {
+      const ack = await this.link.inboxAck(ids, `${binding.agentId}:${binding.name.toLowerCase()}`);
+      return { ok: ack.ok, detail: ack.detail };
+    } catch (error) {
+      return { ok: false, detail: String(error) };
+    }
+  }
+
   async start(): Promise<void> {
     const raw = this.opts.yuyiConfig;
     if (!raw || raw.enabled === false || !raw.hub || raw.agents.length === 0) {

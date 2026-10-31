@@ -1490,6 +1490,45 @@ export async function createPaseoDaemon(
     logger.error({ err: error }, "Yuyi service failed to start");
   });
 
+  // yuyi fork M2b: 御驿读 API（经 daemon 单条 Hub 连接收口；bearer 鉴权同其余 /api）
+  app.get("/api/yuyi/status", (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    res.json(yuyiService.statusSnapshot());
+  });
+  app.get("/api/yuyi/peers", async (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    try {
+      res.json(await yuyiService.peersSnapshot());
+    } catch (error) {
+      res.status(502).json({ error: String(error) });
+    }
+  });
+  app.get("/api/yuyi/inbox", async (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    res.json(await yuyiService.inboxSnapshot());
+  });
+  app.post("/api/yuyi/inbox/ack", (req, res) => {
+    const body = req.body as { binding?: string; ids?: unknown };
+    const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
+    if (!body.binding || ids.length === 0) {
+      res.status(400).json({ error: "binding 与 ids 必填" });
+      return;
+    }
+    void yuyiService
+      .inboxAckFor(body.binding, ids)
+      .then((ack) => res.json(ack))
+      .catch((error) => res.status(502).json({ error: String(error) }));
+  });
+
   agentManager.setAgentArchivedCallback(async (agentId) => {
     try {
       await scheduleService.completeForAgent(agentId);

@@ -64,6 +64,7 @@ import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
 import { MobilePanelOverlay } from "@/mobile-panels/presentation";
 import { buildSettingsAddHostRoute, buildSettingsRoute } from "@/utils/host-routes";
 import { openHostOverview } from "@/navigation/settings-navigation";
+import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 import { UsageSidebarItem, UsageSidebarRoot, useUsageSummary, useOpenSidebarUsage } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
@@ -852,7 +853,8 @@ const styles = StyleSheet.create((theme) => ({
     marginRight: theme.spacing[2],
   },
   desktopSidebarBorder: {
-    borderRightWidth: 1,
+    // yuyi fork (M2e): Tauri 帧模式下侧栏坐在容器上，与卡片之间靠缝隙分隔——去右边框线
+    borderRightWidth: isYuyiTauriShell() ? 0 : 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
   },

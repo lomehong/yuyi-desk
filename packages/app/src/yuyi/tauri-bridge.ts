@@ -105,3 +105,6 @@ export function isYuyiTauriShell(): boolean {
   (globalThis as Record<string, unknown>).__YUYI_SHELL_CACHED__ = result;
   return result;
 }
+
+// side-effect import 即安装（index.ts 顶部 import 本模块的目的）
+installTauriDesktopBridge();

@@ -44,6 +44,7 @@ import { SidebarModelProvider } from "@/components/sidebar/sidebar-model";
 import { WorkspacePinShortcutHandler } from "@/components/workspace-pin-shortcut-handler";
 import { WorkspaceRenameHost } from "@/components/workspace-rename-host";
 import { WorkspaceExplorerOpenGesture } from "@/mobile-panels/explorer-open-gesture";
+import { isYuyiTauriShell, YuyiContentCard, YuyiShellTopbar } from "@/yuyi/shell-frame";
 import { ProviderSettingsHost } from "@/components/provider-settings-host";
 import { WorkspaceSetupDialog } from "@/components/workspace-setup-dialog";
 import { WorkspaceShortcutTargetsSubscriber } from "@/components/workspace-shortcut-targets-subscriber";
@@ -442,7 +443,30 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     () => [rowStyle, !isCompactLayout && { paddingLeft: insets.left, paddingRight: insets.right }],
     [insets.left, insets.right, isCompactLayout],
   );
-  const workspaceChrome = (
+  /*
+   * yuyi fork (M2e): Tauri 壳下启用「容器 + 卡片」帧——
+   * 容器（surfaceSidebar 深底）= 顶栏（全宽、左端侧栏开关、右端窗口三键浮层）+ 行；
+   * 内容包进圆角卡片，卡片与容器间露缝；侧栏坐在容器上。非 Tauri 环境原样。
+   */
+  const yuyiFrame = isYuyiTauriShell() && !isCompactLayout;
+  const workspaceChrome = yuyiFrame ? (
+    <View style={layoutStyles.yuyiFrameContainer}>
+      <YuyiShellTopbar />
+      <View style={workspaceChromeStyle}>
+        <WorkspaceLayoutModePublisher />
+        <WindowChromeRegion corners={appChromeLayout.sidebarCorners}>
+          {themedSidebarChrome}
+        </WindowChromeRegion>
+        <WorkspaceExplorerOpenGesture enabled={chromeEnabled && isCompactLayout}>
+          <WindowChromeRegion corners={appChromeLayout.contentCorners}>
+            <YuyiContentCard>
+              <View style={flexStyle}>{children}</View>
+            </YuyiContentCard>
+          </WindowChromeRegion>
+        </WorkspaceExplorerOpenGesture>
+      </View>
+    </View>
+  ) : (
     <View style={workspaceChromeStyle}>
       <WorkspaceLayoutModePublisher />
       {!isCompactLayout ? (
@@ -919,6 +943,11 @@ const layoutStyles = StyleSheet.create((theme) => ({
   surfaceFill: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
+  },
+  // yuyi fork (M2e): 「容器 + 卡片」帧的容器层（深底，缝隙/顶栏同色）
+  yuyiFrameContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.surfaceSidebar,
   },
   windowSidebarToggle: {
     position: "absolute",

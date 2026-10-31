@@ -13,57 +13,6 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TITLEBAR_HEIGHT = "34px";
-
-const TITLEBAR_SNIPPET = `
-<style id="yuyi-titlebar-style">
-  #yuyi-titlebar{position:fixed;top:0;left:0;right:0;height:${TITLEBAR_HEIGHT};z-index:2147483000;
-    display:flex;align-items:center;justify-content:space-between;
-    background:#14213b;color:#cfd8e3;font:12px/1 "Segoe UI","Microsoft YaHei",sans-serif;
-    user-select:none;-webkit-user-select:none;cursor:default;}
-  #yuyi-titlebar .yuyi-brand{display:flex;align-items:center;gap:8px;padding:0 12px;height:100%;}
-  #yuyi-titlebar .yuyi-dot{width:10px;height:10px;border-radius:5px;background:#5a94cd;flex:none;}
-  #yuyi-titlebar .yuyi-wbtns{display:flex;height:100%;flex:none;}
-  #yuyi-titlebar button{width:46px;height:100%;border:0;background:transparent;color:#cfd8e3;
-    font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
-  #yuyi-titlebar button:hover{background:#26456f;color:#fff;}
-  #yuyi-titlebar #yuyi-close:hover{background:#c42b1c;color:#fff;}
-</style>
-<div id="yuyi-titlebar" data-tauri-drag-region>
-  <span class="yuyi-brand" data-tauri-drag-region><span class="yuyi-dot"></span>御驿 Yuyi Desk</span>
-  <span class="yuyi-wbtns">
-    <button id="yuyi-min" title="最小化" aria-label="最小化">&#x2500;</button>
-    <button id="yuyi-max" title="最大化 / 还原" aria-label="最大化或还原">&#x25A1;</button>
-    <button id="yuyi-close" title="关闭" aria-label="关闭">&#x2715;</button>
-  </span>
-</div>
-<script>
-(function () {
-  function boot() {
-    var root = document.getElementById("root");
-    if (root) {
-      root.style.setProperty("margin-top", "${TITLEBAR_HEIGHT}", "important");
-      root.style.setProperty("height", "calc(100% - ${TITLEBAR_HEIGHT})", "important");
-    }
-    var api = window.__TAURI__ && window.__TAURI__.window;
-    var bar = document.getElementById("yuyi-titlebar");
-    if (!api || !bar) return;
-    var win = api.getCurrentWindow();
-    document.getElementById("yuyi-min").addEventListener("click", function () { win.minimize(); });
-    document.getElementById("yuyi-max").addEventListener("click", function () { win.toggleMaximize(); });
-    document.getElementById("yuyi-close").addEventListener("click", function () { win.close(); });
-    // 双击标题栏 = 最大化/还原（与拖动区同元素）
-    bar.addEventListener("dblclick", function (e) {
-      if (e.target.closest("button")) return;
-      win.toggleMaximize();
-    });
-  }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
-})();
-</script>
-`;
-
 const here = dirname(fileURLToPath(import.meta.url));
 const src = resolve(here, "../../..", "packages", "app", "dist");
 const dest = resolve(here, "..", "web-dist");
@@ -89,8 +38,7 @@ if (!html.includes("__PASEO_INITIAL_DAEMON_CONNECTION__")) {
   html = html.replace(/<head([^>]*)>/i, `<head$1>${injected}`);
 }
 html = html.replace(/<title>[^<]*<\/title>/i, "<title>御驿 Yuyi Desk</title>");
-if (!html.includes('id="yuyi-titlebar"')) {
-  html = html.replace(/<\/body>/i, `${TITLEBAR_SNIPPET}\n</body>`);
-}
+// M2e：无边框窗口的自绘标题栏已由 app 内建（yuyi/shell-frame 顶栏 + 桥垫片），
+// 不再注入旧标题栏——保留 daemon 提示与标题改写。
 writeFileSync(indexPath, html);
-console.log(`[sync-web] web-dist 就绪（daemon: ${listen}, tls: ${useTls}, 标题栏: 已注入）`);
+console.log(`[sync-web] web-dist 就绪（daemon: ${listen}, tls: ${useTls}, 帧模式: app 内建）`);

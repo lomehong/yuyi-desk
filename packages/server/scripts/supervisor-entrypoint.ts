@@ -16,7 +16,7 @@ import { reapTerminalWorkers } from "../src/terminal/terminal-worker-reaper.js";
 import { runSupervisor } from "./supervisor.js";
 import { resolveSupervisorLogFile } from "./supervisor-log-config.js";
 
-process.title = "Paseo Supervisor";
+process.title = "Yuyi Desk Supervisor";
 
 interface DaemonRunnerConfig {
   devMode: boolean;

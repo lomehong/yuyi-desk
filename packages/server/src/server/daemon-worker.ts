@@ -8,7 +8,7 @@ import { createRootLogger } from "./logger.js";
 import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 
-process.title = "Paseo Daemon";
+process.title = "Yuyi Desk Daemon";
 
 type SupervisorLifecycleMessage =
   | {

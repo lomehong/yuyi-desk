@@ -11,7 +11,7 @@
  * YuyiShellTopbar 渲染顶栏（含侧栏开关）；YuyiContentCard 包内容区。
  */
 import { useCallback, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 
@@ -49,7 +49,10 @@ export function YuyiSidebarToggle() {
   }, []);
   return (
     <Pressable onPress={onPress} style={styles.toggle} testID="yuyi-sidebar-toggle">
-      <Text style={styles.toggleGlyph}>☰</Text>
+      <Image
+        source={require("../../assets/images/yuyi-logo.png")}
+        style={styles.toggleLogo}
+      />
       <Text style={styles.toggleLabel}>{t("yuyi.title")}</Text>
     </Pressable>
   );
@@ -92,9 +95,10 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: 12,
     height: "100%",
   },
-  toggleGlyph: {
-    color: theme.colors.foregroundMuted,
-    fontSize: 14,
+  toggleLogo: {
+    width: 18,
+    height: 18,
+    resizeMode: "contain",
   },
   toggleLabel: {
     color: theme.colors.foregroundMuted,

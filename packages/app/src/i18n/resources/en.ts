@@ -1996,7 +1996,7 @@ export const en = {
         alwaysUseFilename: "Always use for {{filename}}",
         option: "{{title}} — {{owner}}",
         builtin: {
-          owner: "Paseo",
+          owner: "Yuyi",
           markdown: "Markdown",
           html: "HTML",
           image: "Image",

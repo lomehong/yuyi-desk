@@ -2003,7 +2003,7 @@ export const ru: TranslationResources = {
         alwaysUseFilename: "Всегда использовать для {{filename}}",
         option: "{{title}} — {{owner}}",
         builtin: {
-          owner: "Paseo",
+          owner: "Yuyi",
           markdown: "Markdown",
           html: "HTML",
           image: "Изображение",

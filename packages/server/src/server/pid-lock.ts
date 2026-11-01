@@ -110,7 +110,7 @@ export function isPidLockOwnerRunning(lock: PidLockInfo): boolean {
 }
 
 function getPidFilePath(paseoHome: string): string {
-  return join(paseoHome, "paseo.pid");
+  return join(paseoHome, "yuyi-desk.pid");
 }
 
 async function touchPidLockFile(pidPath: string): Promise<void> {

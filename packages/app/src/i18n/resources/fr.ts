@@ -2017,7 +2017,7 @@ export const fr: TranslationResources = {
         alwaysUseFilename: "Toujours utiliser pour {{filename}}",
         option: "{{title}} — {{owner}}",
         builtin: {
-          owner: "Paseo",
+          owner: "Yuyi",
           markdown: "Markdown",
           html: "HTML",
           image: "Image",

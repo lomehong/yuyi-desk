@@ -15,7 +15,7 @@
 import type { Logger } from "pino";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -71,30 +71,52 @@ function writeTokenCache(path: string, cache: Record<string, TokenCacheEntry>): 
 
 /** 读取闸门名单（兼容两代形态：旧 string[] blocked / 新 {blocked, terminated}；
  * 文件缺失/损坏 = 空名单，不因持久化问题拒绝服务） */
+type BlockedEntry = { reason: string; at: number; until?: number };
+
+interface GateFile {
+  blocked: Record<string, BlockedEntry>;
+  terminated: Record<string, { reason: string; at: number }>;
+}
+
+/** 读取闸门名单（兼容三代形态：裸 string[] / {blocked: string[]} / {blocked: Record}） */
 function readGateFile(path: string): GateFile {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (Array.isArray(parsed)) {
-      return { blocked: parsed.filter((x): x is string => typeof x === "string"), terminated: {} };
+    const terminated: GateFile["terminated"] = {};
+    let blockedRaw: unknown = parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const rec = parsed as GateFile & { blocked?: unknown; terminated?: unknown };
+      blockedRaw = rec.blocked ?? parsed;
+      if (rec.terminated && typeof rec.terminated === "object") {
+        Object.assign(terminated, rec.terminated);
+      }
     }
-    const rec = parsed as { blocked?: unknown; terminated?: unknown };
-    return {
-      blocked: Array.isArray(rec.blocked)
-        ? rec.blocked.filter((x): x is string => typeof x === "string")
-        : [],
-      terminated:
-        rec.terminated && typeof rec.terminated === "object"
-          ? (rec.terminated as Record<string, { reason: string; at: number }>)
-          : {},
-    };
+    const blocked: Record<string, BlockedEntry> = {};
+    const entries: Array<{ id: string; v?: BlockedEntry }> = Array.isArray(blockedRaw)
+      ? (blockedRaw as string[]).map((id) => ({ id }))
+      : Object.entries((blockedRaw ?? {}) as Record<string, BlockedEntry>).map(([id, v]) => ({
+          id,
+          v,
+        }));
+    for (const e of entries) {
+      if (typeof e.id === "string") {
+        blocked[e.id] = e.v ?? { reason: "admin", at: 0 };
+      }
+    }
+    return { blocked, terminated };
   } catch {
-    return { blocked: [], terminated: {} };
+    return { blocked: {}, terminated: {} };
   }
 }
 
-interface GateFile {
-  blocked: string[];
-  terminated: Record<string, { reason: string; at: number }>;
+/** gate 事件留痕（yuyi-agent events.jsonl 同款追加审计） */
+function appendGateEvent(path: string, event: Record<string, unknown>): void {
+  const line = JSON.stringify({ time: Date.now(), ...event });
+  try {
+    appendFileSync(path, line + "\n", { mode: 0o600 });
+  } catch {
+    // best-effort
+  }
 }
 
 // writeFileSync 在顶部 node:fs 导入
@@ -109,8 +131,8 @@ export class YuyiService {
   private cachedConfig: ReturnType<typeof resolveYuyiConfig> | null = null;
   /** 本进程代领到的令牌（agentId → token；映射缺 token 的绑定从这取） */
   private claimedTokens = new Map<string, string>();
-  /** 被管理台屏蔽（block）的御符身份——拒绝自动注入/自动回信 */
-  private blockedAgents = new Set<string>();
+  /** 被管理台屏蔽（block）的御符身份——拒绝自动注入/自动回信；until 到期自动解除 */
+  private blockedAgents = new Map<string, { reason: string; at: number; until?: number }>();
   /** 被管理台终止（terminate）的身份快照（跨重启保持；同身份重新绑定即清） */
   private terminatedAgents = new Map<string, { reason: string; at: number }>();
   /** device/state 周期上报 timer */
@@ -283,8 +305,8 @@ export class YuyiService {
     await this.ensureTokens(config);
     // 恢复闸门状态（yuyi-gate.json：blocked 名单 + terminated 快照，0600）
     const gate = readGateFile(this.gatePath);
-    for (const agentId of gate.blocked) {
-      this.blockedAgents.add(agentId);
+    for (const [agentId, entry] of Object.entries(gate.blocked)) {
+      this.blockedAgents.set(agentId, entry);
     }
     for (const [agentId, t] of Object.entries(gate.terminated)) {
       this.terminatedAgents.set(agentId, t);
@@ -348,9 +370,7 @@ export class YuyiService {
       const gateAgents = [...this.byPaseo.values()].map((b) => ({
         agentId: b.agentId,
         name: b.name,
-        ...(this.blockedAgents.has(b.agentId)
-          ? { blocked: { reason: "admin", at: Date.now() } }
-          : {}),
+        ...(this.isBlocked(b.agentId) ? { blocked: this.blockedAgents.get(b.agentId)! } : {}),
         ...(this.terminatedAgents.has(b.agentId)
           ? { terminated: this.terminatedAgents.get(b.agentId) }
           : {}),
@@ -395,6 +415,23 @@ export class YuyiService {
    *   release   → 解除屏蔽
    * agentId 为御符权威 id；block 名单持久化 <home>/yuyi-gate.json（0600）。
    */
+  /** 屏蔽判定：until 到期自动解除（并持久化） */
+  private isBlocked(agentId: string): boolean {
+    const entry = this.blockedAgents.get(agentId);
+    if (!entry) return false;
+    if (entry.until && Date.now() >= entry.until) {
+      this.blockedAgents.delete(agentId);
+      this.appendGateEvent("release(auto-expired)", agentId);
+      this.persistGate();
+      return false;
+    }
+    return true;
+  }
+
+  private appendGateEvent(op: string, agentId: string, reason?: string): void {
+    appendGateEvent(this.eventsPath, { op, agentId, reason });
+  }
+
   private async handleDeviceControl(
     op: "terminate" | "block" | "release",
     agentId: string,
@@ -412,11 +449,15 @@ export class YuyiService {
         // 不在运行中——忽略，归档继续
       }
       await manager.archiveAgent(binding.paseoAgentId);
-      this.blockedAgents.add(agentId);
+      this.blockedAgents.set(agentId, {
+        reason: _opts?.reason ?? "terminated",
+        at: Date.now(),
+      });
       this.terminatedAgents.set(agentId, {
         reason: _opts?.reason ?? "admin terminate",
         at: Date.now(),
       });
+      this.appendGateEvent("terminate", agentId);
       this.persistGate();
       this.pushDeviceState();
       this.link?.unbindPaseo(binding.paseoAgentId);
@@ -424,12 +465,18 @@ export class YuyiService {
       return { ok: true, detail: `已停止并归档 agent ${binding.paseoAgentId.slice(0, 8)}（身份已屏蔽自动注入）` };
     }
     if (op === "block") {
-      this.blockedAgents.add(agentId);
+      this.blockedAgents.set(agentId, {
+        reason: _opts?.reason ?? "admin block",
+        at: Date.now(),
+        ...(_opts?.until ? { until: _opts.until } : {}),
+      });
+      this.appendGateEvent("block", agentId, _opts?.reason);
       this.persistGate();
       this.pushDeviceState();
       return { ok: true, detail: `已屏蔽 ${binding.name} 的自动注入（release 解除）` };
     }
     this.blockedAgents.delete(agentId);
+    this.appendGateEvent("release", agentId);
     this.persistGate();
     this.pushDeviceState();
       return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
@@ -441,7 +488,7 @@ export class YuyiService {
         this.gatePath,
         JSON.stringify(
           {
-            blocked: [...this.blockedAgents],
+            blocked: Object.fromEntries(this.blockedAgents),
             terminated: Object.fromEntries(this.terminatedAgents),
           },
           null,
@@ -456,6 +503,10 @@ export class YuyiService {
 
   private get gatePath(): string {
     return join(this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"), "yuyi-gate.json");
+  }
+
+  private get eventsPath(): string {
+    return join(this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"), "yuyi-gate-events.jsonl");
   }
 
   /**
@@ -611,7 +662,7 @@ export class YuyiService {
       );
       return;
     }
-    if (this.blockedAgents.has(effectiveMapping.agentId)) {
+    if (this.isBlocked(effectiveMapping.agentId)) {
       this.logger.info(
         { paseoAgentId: agent.id, yuyiName: mapping.name },
         "身份被管理台屏蔽，跳过绑定（release 后恢复）",
@@ -645,7 +696,7 @@ export class YuyiService {
   ): Promise<{ ok: boolean; detail?: string }> {
     // 管理台屏蔽（block）的身份：拒绝自动注入——回 wakeup_failed 让 Hub 入
     // 收件箱（消息不丢），release 后可从收件箱补看
-    if (this.blockedAgents.has(binding.agentId)) {
+    if (this.isBlocked(binding.agentId)) {
       return { ok: false, detail: `身份 ${binding.name} 已被管理台屏蔽自动注入` };
     }
     const prompt = formatYuyiPrompt(message);

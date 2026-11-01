@@ -52,10 +52,10 @@
 ① schedules 簇四文件完全硬编码、② zh-CN 里 4 处整块引用 en.settings.layout 等
 （213 条值漏翻）。已修：schedules 全部接入 i18n（schedules.* 命名空间 9 语言、
 describeCron 参数化）+ zh-CN settings.layout 内联中文（d06004e74）。
-**剩余已知漏翻**：~210 条 i18n 值仍为英文（settings.host×53、workspace.git×18、
-desktop.daemon×17、settings.diagnostics×12 等，用 `git grep 'en\.' packages/app/src/i18n/resources/zh-CN.ts`
-与 en/zh 对比脚本可复现清单），另 3 处 zh-CN 的 en.* 引用（chooseHostTitle/
-desktop.daemon.lifecycle/settings.host.skills）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+**第三轮批量清理（9e386a6f8）**：170 条逐条翻译 + plugin-settings 共享 logs
+zh 覆盖 + browser-tools-config 硬编码接入 i18n + skills/lifecycle/chooseHostTitle
+内联。**清理后残留仅专有名词**（Hub/Agents/Agent ID/Enter/主题名/Discord/ACP/
+Markdown/HTML 等约 24 条，按惯例保留英文）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
     报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。

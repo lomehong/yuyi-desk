@@ -48,7 +48,14 @@
     御驿页签（状态/收件箱/同伴）、搜索、计划创建/编辑、语言切换（中↔英↔俄即时
     生效+持久化）——全部通过。**测试方法教训**：合成 value-setter 输入不被 RN-web
     受控 composer 登记，会走「空提交」路径建出无 agent 工作区——UI 测试必须用
-    CDP Input.insertText 等真实输入通道。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+    CDP Input.insertText 等真实输入通道。**本地化审查（2026-11-01 第三轮）**：用户指出切中文后仍夹英文。两类缺口——
+① schedules 簇四文件完全硬编码、② zh-CN 里 4 处整块引用 en.settings.layout 等
+（213 条值漏翻）。已修：schedules 全部接入 i18n（schedules.* 命名空间 9 语言、
+describeCron 参数化）+ zh-CN settings.layout 内联中文（d06004e74）。
+**剩余已知漏翻**：~210 条 i18n 值仍为英文（settings.host×53、workspace.git×18、
+desktop.daemon×17、settings.diagnostics×12 等，用 `git grep 'en\.' packages/app/src/i18n/resources/zh-CN.ts`
+与 en/zh 对比脚本可复现清单），另 3 处 zh-CN 的 en.* 引用（chooseHostTitle/
+desktop.daemon.lifecycle/settings.host.skills）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
     报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。

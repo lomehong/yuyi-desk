@@ -42,7 +42,7 @@ fn yuyi_daemon_info(state: tauri::State<DaemonConfigSlot>) -> Result<serde_json:
         .unwrap_or_default();
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map(|h| format!("{}/.paseo", h.replace('\\', "/")))
+        .map(|h| format!("{}/.yuyi-desk", h.replace('\\', "/")))
         .unwrap_or_default();
     Ok(serde_json::json!({
         "host": cfg.host(),
@@ -76,13 +76,14 @@ fn yuyi_daemon_log_tail(max_bytes: Option<u32>) -> Result<serde_json::Value, Str
 
 #[derive(serde::Deserialize, Default, Clone)]
 #[serde(default)]
-struct DaemonConfig {    /// daemon TCP 地址（存活探测 + 自动拉起判定）
+struct DaemonConfig {
+    /// daemon TCP 地址（存活探测 + 自动拉起判定）
     host: String,
     port: u16,
     /// 拉起命令（空 = 不自动拉起，仅连接已有 daemon）
     command: String,
     args: Vec<String>,
-    /// 附加/覆盖环境变量（如 PASEO_HOME）
+    /// 附加/覆盖环境变量（如 YUYI_DESK_HOME / PASEO_HOME）
     env: HashMap<String, String>,
     /// 拉起后等待端口就绪的探测窗口（ms）
     ready_timeout_ms: u64,
@@ -128,12 +129,12 @@ fn read_daemon_config() -> Option<DaemonConfig> {
     // 路径统一正斜杠——原始反斜杠（\U、\Y…）是非法 JSON 转义会让解析失败。
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map(|h| format!("{}/.paseo", h.replace('\\', "/")))
-        .unwrap_or_else(|_| ".paseo".to_string());
+        .map(|h| format!("{}/.yuyi-desk", h.replace('\\', "/")))
+        .unwrap_or_else(|_| ".yuyi-desk".to_string());
     let install = dir.display().to_string().replace('\\', "/");
     let resolved = text
         .replace("{{INSTALL_DIR}}", &install)
-        .replace("{{PASEO_HOME}}", &home);
+        .replace("{{DATA_DIR}}", &home);
     if resolved != text {
         let _ = fs::write(&path, &resolved);
     }

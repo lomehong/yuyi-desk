@@ -13,7 +13,7 @@
  *      超 Windows MAX_PATH，makensis 打不开 → 从树中剔除 web-ui（daemon 的浏览器 UI
  *      为可选项；桌面壳用本地 web-dist，手机走 WS/API，均不受影响）。
  *   3. 原始反斜杠路径是非法 JSON 转义——yuyi-daemon.json 模板统一用正斜杠，
- *      壳首启解析 {{INSTALL_DIR}}/{{PASEO_HOME}} 时也产正斜杠。
+ *      壳首启解析 {{INSTALL_DIR}}/{{DATA_DIR}} 时也产正斜杠。
  *
  * 布局（NSIS 安装后位于 <installdir>）：
  *   runtime/node.exe
@@ -127,7 +127,7 @@ writeFileSync(
       args: [
         "{{INSTALL_DIR}}/runtime/server-runtime/node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js",
       ],
-      env: { PASEO_HOME: "{{PASEO_HOME}}" },
+      env: { YUYI_DESK_HOME: "{{DATA_DIR}}" },
       ready_timeout_ms: 60000,
     },
     null,

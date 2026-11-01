@@ -8,7 +8,9 @@
  *
  * token 是机密：不落日志、不进任何回执与错误信息。
  */
-import { hostname } from "node:os";
+import { readFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
 /** 注入到 agent 的 MCP server 名（不得为 "paseo"——上游有冲突保护） */
@@ -19,8 +21,12 @@ export const YuyiAgentMappingSchema = z.object({
   name: z.string().min(1),
   /** 御符签发的 agentId（UUID） */
   agentId: z.string().min(1),
-  /** 御符签发的 agent token（机密） */
-  token: z.string().min(1),
+  /**
+   * 御符签发的 agent token（机密）。**可省略**：配置了设备凭证时，
+   * 服务启动会自动用设备凭证向御符代领（结果落盘缓存复用，
+   * 不回写 config——申领接口非幂等，每次调用即轮换）。
+   */
+  token: z.string().min(1).optional(),
   /**
    * 匹配规则：命中本身份的 Paseo agent（首个命中胜出；同身份多个命中时最新绑定胜出）。
    * 缺省不自动绑定——该身份仅可被显式指定使用。
@@ -40,6 +46,8 @@ export const YuyiConfigSchema = z.object({
   enabled: z.boolean().optional(),
   /** 御驿 Hub WS 地址（ws:// 或 wss://） */
   hub: z.string().min(1),
+  /** 御符地址（凭证代领用）；缺省读 ~/.yuyi/agent.json 的 yufu_url，再缺省官方地址 */
+  yufu: z.string().optional(),
   /**
    * 设备名。缺省 `${hostname}-desk`——沿用御驿 device 契约（接入面后缀），
    * 与本机其他御驿接入面（opencode/mcp/omp…）天然不同 device，避免撞号互踢。
@@ -49,6 +57,12 @@ export const YuyiConfigSchema = z.object({
   token: z.string().optional(),
   /** hello.agentKind（Hub 侧指标分组）；缺省 "yuyi-desk" */
   agentKind: z.string().optional(),
+  /**
+   * 设备凭证（dev-*，御符签发）。配置后可为 agents 里缺 token 的映射自动
+   * 代领令牌（R1「设备=Agent 凭证供给通道」）；缺省读
+   * `~/.yuyi/yuyi-agent/device-credential`（yuyi-agent 标准位置）。
+   */
+  deviceCredential: z.string().optional(),
   /**
    * 连接主体：缺省 "device"（目标形态，设备凭证 + agent/register）。
    * "agent" = 兼容模式：单身份连接（token 用 agents[0].token），roster 走
@@ -66,6 +80,8 @@ export type YuyiConfig = z.infer<typeof YuyiConfigSchema>;
 /** 解析后的运行时配置（填默认值；token 保持原样传递） */
 export interface ResolvedYuyiConfig {
   hub: string;
+  yufu: string;
+  deviceCredential: string | undefined;
   device: string;
   token: string | undefined;
   agentKind: string;
@@ -74,10 +90,39 @@ export interface ResolvedYuyiConfig {
   agents: YuyiAgentMapping[];
 }
 
+const DEFAULT_YUFU_URL = "https://yufu.qianji.io";
+
+/** ~/.yuyi/agent.json 的 yufu_url（御符地址的生态默认来源） */
+function readYufuUrlFromAgentJson(): string | undefined {
+  try {
+    const agentJson = JSON.parse(
+      readFileSync(join(homedir(), ".yuyi", "agent.json"), "utf8"),
+    ) as { yufu_url?: string };
+    return typeof agentJson.yufu_url === "string" ? agentJson.yufu_url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** yuyi-agent 标准位置的设备凭证文件 */
+export function readDeviceCredentialFile(): string | undefined {
+  try {
+    const text = readFileSync(
+      join(homedir(), ".yuyi", "yuyi-agent", "device-credential"),
+      "utf8",
+    ).trim();
+    return text.startsWith("dev-") ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function resolveYuyiConfig(config: YuyiConfig): ResolvedYuyiConfig {
   const principal = config.principal ?? "device";
   return {
     hub: config.hub,
+    yufu: config.yufu?.trim() || readYufuUrlFromAgentJson() || DEFAULT_YUFU_URL,
+    deviceCredential: config.deviceCredential?.trim() || readDeviceCredentialFile(),
     device: config.device?.trim() || `${hostname()}-desk`,
     // agent 模式连接 token = 身份 token；device 模式 = 设备凭证（缺省回退 agents[0]）
     token: config.token?.trim() || config.agents[0]?.token,

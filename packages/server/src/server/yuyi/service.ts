@@ -15,11 +15,14 @@
 import type { Logger } from "pino";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
 } from "../agent/agent-prompt.js";
-import { matchMapping, resolveYuyiConfig, type YuyiConfig } from "./config.js";
+import { matchMapping, resolveYuyiConfig, type YuyiAgentMapping, type YuyiConfig } from "./config.js";
 import { YuyiLink, type YuyiBinding } from "./link.js";
 import type { YuyiMessage } from "@qianji/protocol";
 
@@ -37,8 +40,37 @@ export interface YuyiServiceOptions {
   yuyiConfig: YuyiConfig | undefined;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
+  /** daemon 数据目录（~/.paseo）——凭证缓存落盘位置 */
+  agentStoragePath?: string;
   logger: Logger;
 }
+
+/** 代领令牌缓存 TTL：72h（御符令牌轮换节奏内；过期即重申领） */
+const TOKEN_CACHE_TTL_MS = 72 * 60 * 60 * 1000;
+
+interface TokenCacheEntry {
+  token: string;
+  claimedAt: number;
+}
+
+function readTokenCache(path: string): Record<string, TokenCacheEntry> {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, TokenCacheEntry>;
+  } catch {
+    return {};
+  }
+}
+
+function writeTokenCache(path: string, cache: Record<string, TokenCacheEntry>): void {
+  try {
+    writeFileSync(path, JSON.stringify(cache, null, 2), { mode: 0o600 });
+  } catch {
+    // best-effort；缓存失败只影响下次启动多申领一次
+  }
+}
+
+// writeFileSync 在顶部 node:fs 导入
+
 
 export class YuyiService {
   private readonly logger: Logger;
@@ -47,6 +79,8 @@ export class YuyiService {
   private byPaseo = new Map<string, YuyiBinding>();
   private injectEnvEnabled = true;
   private cachedConfig: ReturnType<typeof resolveYuyiConfig> | null = null;
+  /** 本进程代领到的令牌（agentId → token；映射缺 token 的绑定从这取） */
+  private claimedTokens = new Map<string, string>();
 
   constructor(private readonly opts: YuyiServiceOptions) {
     this.logger = opts.logger.child({ module: "yuyi" });
@@ -210,6 +244,9 @@ export class YuyiService {
     const config = resolveYuyiConfig(raw);
     this.cachedConfig = config;
     this.injectEnvEnabled = config.injectEnv;
+    // 凭证代领（R1「设备=Agent 凭证供给通道」）：映射缺 token 时用设备凭证向御符
+    // 申领——必须在连接前完成（agent 模式连接身份就是 agents[0] 的 token）
+    await this.ensureTokens(config);
     this.link = new YuyiLink({
       config,
       log: (msg) => this.logger.info(msg),
@@ -269,6 +306,96 @@ export class YuyiService {
 
   // ---- 内部 ----
 
+  /**
+   * 凭证代领（移植自御驿 packages/agent credentials.ts 的语义，端点
+   * POST /api/v1/device/agents/{agentId}/token，设备凭证 Bearer）。
+   * 御符申领**非幂等**（每次调用即轮换），沿用其三条护栏：
+   *   缓存复用 → 每进程每 agent 至多一次成功申领 → 失败不占配额。
+   * 结果落盘 <paseoHome>/yuyi-agent-credentials.json（0600），不回写 config。
+   */
+  private async ensureTokens(config: ReturnType<typeof resolveYuyiConfig>): Promise<void> {
+    const missing = config.agents.filter((m) => !m.token);
+    if (missing.length === 0) {
+      return;
+    }
+    const deviceToken =
+      config.deviceCredential ??
+      (() => {
+        try {
+          const text = readFileSync(
+            join(homedir(), ".yuyi", "yuyi-agent", "device-credential"),
+            "utf8",
+          ).trim();
+          return text.startsWith("dev-") ? text : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+    if (!deviceToken) {
+      this.logger.warn(
+        { agents: missing.map((m) => m.name) },
+        "映射缺 token 且无设备凭证（yuyi.deviceCredential 或 ~/.yuyi/yuyi-agent/device-credential），无法代领",
+      );
+      return;
+    }
+
+    const cachePath = join(
+      this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
+      "yuyi-agent-credentials.json",
+    );
+    const cache = readTokenCache(cachePath);
+    for (const mapping of missing) {
+      const cached = cache[mapping.agentId];
+      if (cached?.token && Date.now() - cached.claimedAt < TOKEN_CACHE_TTL_MS) {
+        this.claimedTokens.set(mapping.agentId, cached.token);
+        continue;
+      }
+      try {
+        const res = await fetch(
+          `${config.yufu.replace(/\/$/, "")}/api/v1/device/agents/${encodeURIComponent(mapping.agentId)}/token`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${deviceToken}`,
+            },
+            signal: AbortSignal.timeout(8000),
+          },
+        );
+        const body = (await res.json().catch(() => ({}))) as {
+          agent_token?: string;
+          key_id?: string;
+          code?: string;
+          message?: string;
+        };
+        if (res.status === 200 && typeof body.agent_token === "string" && body.agent_token) {
+          this.claimedTokens.set(mapping.agentId, body.agent_token);
+          cache[mapping.agentId] = { token: body.agent_token, claimedAt: Date.now() };
+          writeTokenCache(cachePath, cache);
+          this.logger.info({ name: mapping.name }, "Yuyi token claimed via device credential");
+        } else {
+          this.logger.warn(
+            { name: mapping.name, http: res.status, detail: body.code ?? body.message },
+            "Yuyi token claim rejected",
+          );
+        }
+      } catch (error) {
+        this.logger.warn({ name: mapping.name, err: String(error) }, "Yuyi token claim failed");
+      }
+    }
+  }
+
+  /** 映射 token 合并：显式 token 优先，否则用代领结果；两者皆无返回 undefined */
+  private mappingWithToken(
+    mapping: YuyiAgentMapping,
+  ): (YuyiAgentMapping & { token: string }) | undefined {
+    if (mapping.token) {
+      return mapping as YuyiAgentMapping & { token: string };
+    }
+    const claimed = this.claimedTokens.get(mapping.agentId);
+    return claimed ? { ...mapping, token: claimed } : undefined;
+  }
+
   /** 持久层 + 内存全量重扫绑定 */
   private async rescanBindings(): Promise<void> {
     try {
@@ -313,7 +440,20 @@ export class YuyiService {
       return;
     }
     const prev = this.byPaseo.get(agent.id);
-    const binding = this.link.bind(mapping, agent.id, agent.config?.title);
+    // token 合并：显式配置优先，否则用代领结果；两者皆无则不绑定（fail-closed）
+    const effectiveMapping = this.mappingWithToken(mapping);
+    if (!effectiveMapping) {
+      if (this.byPaseo.has(agent.id)) {
+        this.link.unbindPaseo(agent.id);
+        this.byPaseo.delete(agent.id);
+      }
+      this.logger.warn(
+        { paseoAgentId: agent.id, yuyiName: mapping.name },
+        "映射无 token 且代领不可用，跳过绑定",
+      );
+      return;
+    }
+    const binding = this.link.bind(effectiveMapping, agent.id, agent.config?.title);
     this.byPaseo.set(agent.id, binding);
     if (!prev || prev.name !== mapping.name) {
       this.logger.info(

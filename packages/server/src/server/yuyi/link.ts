@@ -127,7 +127,7 @@ export class YuyiLink {
    * 建立/替换绑定（同御驿名出现新的匹配 Paseo agent 时换绑——最新胜出），
    * 并立即（重）注册到 Hub。Hub 未连时由 onWelcome 补做。
    */
-  bind(mapping: YuyiAgentMapping, paseoAgentId: string, title?: string | null): YuyiBinding {
+  bind(mapping: YuyiAgentMapping & { token: string }, paseoAgentId: string, title?: string | null): YuyiBinding {
     const previous = this.byName.get(mapping.name);
     if (previous) {
       if (previous.paseoAgentId !== paseoAgentId) {

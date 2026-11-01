@@ -1483,6 +1483,7 @@ export async function createPaseoDaemon(
     yuyiConfig: config.yuyi,
     agentManager,
     agentStorage,
+    agentStoragePath: config.paseoHome,
     logger,
   });
   agentManager.setYuyiEnvResolver((agentId) => yuyiService.envForAgent(agentId));

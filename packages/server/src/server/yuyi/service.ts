@@ -69,14 +69,32 @@ function writeTokenCache(path: string, cache: Record<string, TokenCacheEntry>): 
   }
 }
 
-/** 读取 block 名单（文件缺失/损坏 = 空名单，不因持久化问题拒绝服务） */
-function readGateFile(path: string): string[] {
+/** 读取闸门名单（兼容两代形态：旧 string[] blocked / 新 {blocked, terminated}；
+ * 文件缺失/损坏 = 空名单，不因持久化问题拒绝服务） */
+function readGateFile(path: string): GateFile {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    if (Array.isArray(parsed)) {
+      return { blocked: parsed.filter((x): x is string => typeof x === "string"), terminated: {} };
+    }
+    const rec = parsed as { blocked?: unknown; terminated?: unknown };
+    return {
+      blocked: Array.isArray(rec.blocked)
+        ? rec.blocked.filter((x): x is string => typeof x === "string")
+        : [],
+      terminated:
+        rec.terminated && typeof rec.terminated === "object"
+          ? (rec.terminated as Record<string, { reason: string; at: number }>)
+          : {},
+    };
   } catch {
-    return [];
+    return { blocked: [], terminated: {} };
   }
+}
+
+interface GateFile {
+  blocked: string[];
+  terminated: Record<string, { reason: string; at: number }>;
 }
 
 // writeFileSync 在顶部 node:fs 导入
@@ -93,6 +111,10 @@ export class YuyiService {
   private claimedTokens = new Map<string, string>();
   /** 被管理台屏蔽（block）的御符身份——拒绝自动注入/自动回信 */
   private blockedAgents = new Set<string>();
+  /** 被管理台终止（terminate）的身份快照（跨重启保持；同身份重新绑定即清） */
+  private terminatedAgents = new Map<string, { reason: string; at: number }>();
+  /** device/state 周期上报 timer */
+  private stateTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly opts: YuyiServiceOptions) {
     this.logger = opts.logger.child({ module: "yuyi" });
@@ -259,9 +281,13 @@ export class YuyiService {
     // 凭证代领（R1「设备=Agent 凭证供给通道」）：映射缺 token 时用设备凭证向御符
     // 申领——必须在连接前完成（agent 模式连接身份就是 agents[0] 的 token）
     await this.ensureTokens(config);
-    // 恢复闸门状态（block 名单持久化于 <home>/yuyi-gate.json，0600）
-    for (const agentId of readGateFile(this.gatePath)) {
+    // 恢复闸门状态（yuyi-gate.json：blocked 名单 + terminated 快照，0600）
+    const gate = readGateFile(this.gatePath);
+    for (const agentId of gate.blocked) {
       this.blockedAgents.add(agentId);
+    }
+    for (const [agentId, t] of Object.entries(gate.terminated)) {
+      this.terminatedAgents.set(agentId, t);
     }
     this.link = new YuyiLink({
       config,
@@ -284,6 +310,10 @@ export class YuyiService {
       t.unref?.();
     }
     this.link.start();
+    // device/state 周期上报（30s；变更即推由 bind/unbind/control 后调 pushDeviceState）
+    this.stateTimer = setInterval(() => this.pushDeviceState(), 30_000);
+    this.stateTimer.unref?.();
+    this.pushDeviceState();
     this.logger.info(
       {
         hub: config.hub,
@@ -295,11 +325,46 @@ export class YuyiService {
   }
 
   async stop(): Promise<void> {
+    if (this.stateTimer) {
+      clearInterval(this.stateTimer);
+      this.stateTimer = null;
+    }
     this.unsubscribeAgents?.();
     this.unsubscribeAgents = null;
     this.link?.stop();
     this.link = null;
     this.byPaseo.clear();
+  }
+
+  /**
+   * 上报 device/state（管理台设备视图数据源）。帧结构对齐协议 DeviceStateFrame；
+   * 未连接时静默跳过（下个周期重报）。
+   */
+  pushDeviceState(): void {
+    if (!this.link?.connected) {
+      return;
+    }
+    try {
+      const gateAgents = [...this.byPaseo.values()].map((b) => ({
+        agentId: b.agentId,
+        name: b.name,
+        ...(this.blockedAgents.has(b.agentId)
+          ? { blocked: { reason: "admin", at: Date.now() } }
+          : {}),
+        ...(this.terminatedAgents.has(b.agentId)
+          ? { terminated: this.terminatedAgents.get(b.agentId) }
+          : {}),
+      }));
+      this.link.rawRequest({
+        type: "device/state",
+        id: `devstate_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        daemonVersion: "yuyi-desk",
+        gate: { agents: gateAgents },
+        claimedAgents: [...this.claimedTokens.keys()],
+      });
+    } catch (error) {
+      this.logger.debug({ err: String(error) }, "device/state report skipped");
+    }
   }
 
   /** AgentManager.buildLaunchContext 注入 YUYI_* env（未启用/未绑定返回 null） */
@@ -348,7 +413,12 @@ export class YuyiService {
       }
       await manager.archiveAgent(binding.paseoAgentId);
       this.blockedAgents.add(agentId);
+      this.terminatedAgents.set(agentId, {
+        reason: _opts?.reason ?? "admin terminate",
+        at: Date.now(),
+      });
       this.persistGate();
+      this.pushDeviceState();
       this.link?.unbindPaseo(binding.paseoAgentId);
       this.byPaseo.delete(binding.paseoAgentId);
       return { ok: true, detail: `已停止并归档 agent ${binding.paseoAgentId.slice(0, 8)}（身份已屏蔽自动注入）` };
@@ -356,18 +426,27 @@ export class YuyiService {
     if (op === "block") {
       this.blockedAgents.add(agentId);
       this.persistGate();
+      this.pushDeviceState();
       return { ok: true, detail: `已屏蔽 ${binding.name} 的自动注入（release 解除）` };
     }
     this.blockedAgents.delete(agentId);
     this.persistGate();
-    return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
+    this.pushDeviceState();
+      return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
   }
 
   private persistGate(): void {
     try {
       writeFileSync(
         this.gatePath,
-        JSON.stringify([...this.blockedAgents], null, 2),
+        JSON.stringify(
+          {
+            blocked: [...this.blockedAgents],
+            terminated: Object.fromEntries(this.terminatedAgents),
+          },
+          null,
+          2,
+        ),
         { mode: 0o600 },
       );
     } catch (error) {
@@ -514,6 +593,12 @@ export class YuyiService {
     }
     const prev = this.byPaseo.get(agent.id);
     // token 合并：显式配置优先，否则用代领结果；两者皆无则不绑定（fail-closed）
+    // 被管理台 terminate 的身份：解绑+屏蔽（跨重启保持）；用户在同一身份下
+    // 重新创建 agent 属主动行为——自动清除 terminated 快照允许重新绑定
+    if (this.terminatedAgents.has(mapping.agentId)) {
+      this.terminatedAgents.delete(mapping.agentId);
+      this.persistGate();
+    }
     const effectiveMapping = this.mappingWithToken(mapping);
     if (!effectiveMapping) {
       if (this.byPaseo.has(agent.id)) {
@@ -523,6 +608,13 @@ export class YuyiService {
       this.logger.warn(
         { paseoAgentId: agent.id, yuyiName: mapping.name },
         "映射无 token 且代领不可用，跳过绑定",
+      );
+      return;
+    }
+    if (this.blockedAgents.has(effectiveMapping.agentId)) {
+      this.logger.info(
+        { paseoAgentId: agent.id, yuyiName: mapping.name },
+        "身份被管理台屏蔽，跳过绑定（release 后恢复）",
       );
       return;
     }

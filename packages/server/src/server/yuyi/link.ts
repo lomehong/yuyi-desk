@@ -240,6 +240,12 @@ export class YuyiLink {
     return this.hub.inboxDrain(recipient, 20);
   }
 
+  /** 透传任意请求帧到真 Hub（device/state 上报等；超时不重试，下周期重报） */
+  rawRequest(frame: { id: string } & Record<string, unknown>): Promise<unknown> {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    return this.hub.rawRequest(frame as never);
+  }
+
   /** 标记收件箱条目已读（Hub 侧清读即删） */
   async inboxAck(ids: string[], recipient?: string) {
     if (!this.hub?.connected) {

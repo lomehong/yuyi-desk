@@ -73,10 +73,15 @@ deliver 寻址仍是 `no session matching`——根因是 **Hub v1 功能缺口*
 设备主体连接（身份在 agentSet）一律 no-route（peers 不可见同根源）。
 **已在 Yuyi 仓库修复并推送**（plan.ts agentView 扩展 + router.ts
 forwardDeliver 兜底，commit 5ad72ba；本地源码 Hub 双连接闭环验证通过：
-设备连接 register 会话被 sender deliver 精确命中）。**部署机更新部署
-（smart-deploy.sh --force-restart）后，设备主体形态即完整可用**：
-- fork 侧 `principal` 已切回 device（缺省），无需再动；
-- 凭证代领 + agent/register + deliver 寻址全链路生效；
-- yuyi-agent 吸收合并的前置全部解除。
+设备连接 register 会话被 sender deliver 精确命中）。部署后追验发现**第二处同根因缺口**并已修复（commit 863ca9c，本地双连接
+闭环实证 8ms 即时回执）：设备连接的 deliver **回执校验**同样只认
+conn.identity——accepted_async 回执被 "agent" mismatch 丢弃 → 10s 误降级
+mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
+
+**生产部署 863ca9c 后即完整可用**（fork 侧 principal 已是 device 缺省，
+无需再动）：
+- 凭证代领 + agent/register + deliver 寻址 + 回执认领全链路生效；
+- deliver 快速受理（5s race）不再被 10s 超时吞掉；
+- yuyi-agent 吸收合并的前置全部解除（control/state/闸门已交付）。
 
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。

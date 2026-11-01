@@ -38,6 +38,14 @@ if (!html.includes("__PASEO_INITIAL_DAEMON_CONNECTION__")) {
   html = html.replace(/<head([^>]*)>/i, `<head$1>${injected}`);
 }
 html = html.replace(/<title>[^<]*<\/title>/i, "<title>御驿 Yuyi Desk</title>");
+// 容器底色兜底：WebView 根默认白底会在圆角缝隙和启动瞬间透白——注入深色背景
+// （默认深色主题 surfaceSidebar；运行时主题由应用自身绘制）
+if (!html.includes("yuyi-root-bg")) {
+  html = html.replace(
+    /<head([^>]*)>/i,
+    `<head$1><style id="yuyi-root-bg">html,body{background:#141716;}</style>`,
+  );
+}
 // M2e：无边框窗口的自绘标题栏已由 app 内建（yuyi/shell-frame 顶栏 + 桥垫片），
 // 不再注入旧标题栏——保留 daemon 提示与标题改写。
 writeFileSync(indexPath, html);

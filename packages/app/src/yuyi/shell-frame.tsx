@@ -109,6 +109,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   cardSlot: {
     flex: 1,
+    // 容器底色与顶栏一致：缝隙不透 WebView 白底（圆角外白边的根源）
+    backgroundColor: theme.colors.surfaceSidebar,
     paddingLeft: FRAME_GAP,
     paddingRight: FRAME_GAP,
     paddingTop: FRAME_GAP,

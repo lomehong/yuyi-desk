@@ -11,10 +11,12 @@
  * YuyiShellTopbar 渲染顶栏（含侧栏开关）；YuyiContentCard 包内容区。
  */
 import { useCallback, type ReactNode } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 
+import { PressHighlight } from "@/components/ui/press-highlight";
+import { WindowChromeRegion } from "@/utils/desktop-window";
 import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 
 /** 卡片与容器边缘的缝宽（顶栏下方、右、下、内容与侧栏之间） */
@@ -48,13 +50,10 @@ export function YuyiSidebarToggle() {
     })();
   }, []);
   return (
-    <Pressable onPress={onPress} style={styles.toggle} testID="yuyi-sidebar-toggle">
-      <Image
-        source={require("../../assets/images/yuyi-logo.png")}
-        style={styles.toggleLogo}
-      />
+    <PressHighlight onPress={onPress} style={styles.toggle} testID="yuyi-sidebar-toggle">
+      <Image source={require("../../assets/images/yuyi-logo.png")} style={styles.toggleLogo} />
       <Text style={styles.toggleLabel}>{t("yuyi.title")}</Text>
-    </Pressable>
+    </PressHighlight>
   );
 }
 
@@ -73,7 +72,11 @@ export function YuyiShellTopbar() {
 export function YuyiContentCard({ children }: { children: ReactNode }) {
   return (
     <View style={styles.cardSlot}>
-      <View style={styles.card}>{children}</View>
+      {/* yuyi fork (M2e)：窗口三键只在壳顶栏（卡片之外），卡片内容不需要为它们
+          预留右上避让——收窄 corner 所有权，让卡片内 header 动作贴卡片右缘。 */}
+      <WindowChromeRegion corners="none">
+        <View style={styles.card}>{children}</View>
+      </WindowChromeRegion>
     </View>
   );
 }

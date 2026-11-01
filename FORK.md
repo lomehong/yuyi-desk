@@ -26,6 +26,13 @@
   yuyi_* MCP 出站（/mcp/yuyi）、roster、per-agent env。commit 7066079f1 起。
 - **M2 客户端** ✅：Tauri 2 壳（无边框、「容器+卡片」帧、顶栏开关/三键、daemon 随包自启）、
   读 API（/api/yuyi/status|peers|inbox|ack）、原生御驿界面（状态/收件箱/同伴，9 语言）。
+  - **桌面托管 host 连接凭证通道（2026-11-01 补齐，8f0ac18c8）**：paseo web 层连接
+    桌面托管 host 前经 invoke `desktop_local_credential` 向壳要 `<home>/local-credential`
+    （WS hello 凭证）。Electron 版由 main 实现；Tauri 垫片缺这条 → daemon-client 在
+    发起 WS 前失败 → daemon 日志只有 local_ipc 插件连接，web UI 的 loopback hello
+    从不出现，Host 永远"未连接"。已在壳加 `yuyi_local_credential`（端口校验后返回
+    凭证文件）+ 垫片接线。**验收锚点：daemon 日志出现 `peer:"loopback"` 的 hello
+    即 web UI 已连**（`activeConnections` +1 且稳定）。
 - **M3 收束**（进行中）：
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。

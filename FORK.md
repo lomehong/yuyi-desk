@@ -40,7 +40,9 @@
     （搜索浮层/会话/计划/御驿原生界面）、yuyi 链路（连接/主体/绑定/收件箱）、
     单实例、退出清理——全部通过。**过程中修复**：Hub peers 设备主体缺口
     （Yuyi 0b7c486，部署后生效）；壳单实例锁 + 退出孤儿 daemon 树清理
-    （cda8faec0）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+    （cda8faec0）；**turn 失败可见性**——agent 回合失败（如 provider API 401）
+    原本聊天区无任何反馈（上游只在 timeline 收尾流），现弹错误 toast 明示原因
+    （a72f648aa，9 语言）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
     报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。

@@ -67,7 +67,7 @@ export async function createPaseoWorktreeCommand<Result extends CreatePaseoWorkt
 ): Promise<CreatePaseoWorktreeCommandResult<Result>> {
   try {
     if (!dependencies.createPaseoWorktreeWorkflow) {
-      throw new Error("Paseo worktree service is not configured");
+      throw new Error("Yuyi Desk worktree service is not configured");
     }
 
     const createdWorktree = await dependencies.createPaseoWorktreeWorkflow({

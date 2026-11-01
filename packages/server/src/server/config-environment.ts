@@ -67,9 +67,20 @@ const CONFIG_CONTEXT_ENV_KEYS = [
   "OPENAI_TTS_API_KEY",
 ] as const;
 
+/**
+ * yuyi fork: PASEO_* 设置键的御驿别名（YUYI_DESK_*）优先，PASEO_* 保持上游兼容。
+ */
+function yuyiEnvAlias(key: string): string | null {
+  return key.startsWith("PASEO_") ? `YUYI_DESK_${key.slice("PASEO_".length)}` : null;
+}
+
 export function configurationEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(
-    [...DAEMON_SETTING_ENV_KEYS, ...CONFIG_CONTEXT_ENV_KEYS].map((key) => [key, env[key]]),
+    [...DAEMON_SETTING_ENV_KEYS, ...CONFIG_CONTEXT_ENV_KEYS].map((key) => {
+      const alias = yuyiEnvAlias(key);
+      const value = alias && env[alias] !== undefined ? env[alias] : env[key];
+      return [key, value];
+    }),
   );
 }
 
@@ -81,11 +92,16 @@ export function daemonLaunchEnvironment(input: {
 }): NodeJS.ProcessEnv {
   const env = { ...input.env };
   if (input.mode === "managed") {
-    for (const key of DAEMON_SETTING_ENV_KEYS) delete env[key];
+    for (const key of DAEMON_SETTING_ENV_KEYS) {
+      delete env[key];
+      const alias = yuyiEnvAlias(key);
+      if (alias) delete env[alias];
+    }
   }
   delete env.PASEO_HOST;
   delete env.PASEO_DESKTOP_MANAGED;
   env.PASEO_HOME = input.home;
+  env.YUYI_DESK_HOME = input.home;
   if (input.desktopManaged) env.PASEO_DESKTOP_MANAGED = "1";
   return env;
 }

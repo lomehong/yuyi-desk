@@ -248,7 +248,7 @@ export class OpenCodeBridge {
       return;
     }
     if (!binding.tools) {
-      sendJson(input.response, 403, { error: "Paseo tools are disabled for this session" });
+      sendJson(input.response, 403, { error: "Yuyi tools are disabled for this session" });
       return;
     }
     if (!binding.tools.getTool(input.toolName)) {

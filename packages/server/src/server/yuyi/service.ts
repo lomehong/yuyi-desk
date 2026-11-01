@@ -177,6 +177,7 @@ export class YuyiService {
       text: params.text,
       from: {
         device: config.device,
+        agentId: binding.agentId,
         sessionID: `${binding.name}:${binding.paseoAgentId}`,
         name: binding.name,
       },
@@ -763,6 +764,7 @@ export class YuyiService {
         text,
         from: {
           device: this.cachedConfig.device,
+          agentId: binding.agentId,
           sessionID: `${binding.name}:${binding.paseoAgentId}`,
           name: binding.name,
         },

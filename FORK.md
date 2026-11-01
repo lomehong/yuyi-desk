@@ -34,6 +34,14 @@
     凭证文件）+ 垫片接线。**验收锚点：daemon 日志出现 `peer:"loopback"` 的 hello
     即 web UI 已连**（`activeConnections` +1 且稳定）。
 - **M3 收束**（进行中）：
+  - **桌面端系统性测试（2026-11-01，WebView2 CDP 驱动）**：窗口三键/拖动区、顶栏开关、
+    explorer/终端 tab（含 xterm+node-pty）、新建工作区、agent 全链路（composer 发送→
+    daemon 注入→run→回复流）、设置页（Host/Agents/Providers/诊断）、四侧栏页
+    （搜索浮层/会话/计划/御驿原生界面）、yuyi 链路（连接/主体/绑定/收件箱）、
+    单实例、退出清理——全部通过。**过程中修复**：Hub peers 设备主体缺口
+    （Yuyi 0b7c486，部署后生效）；壳单实例锁 + 退出孤儿 daemon 树清理
+    （cda8faec0）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+    报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。
     `apps/desktop/scripts/bundle-runtime.mjs` 一键复现（含 --ignore-scripts / qianji 实体化 /

@@ -733,7 +733,15 @@ export class YuyiService {
         "Yuyi deliver injected",
       );
       if (message.expectReply) {
-        void this.autoReply(binding, message);
+        // 快速受理后注入仍在进行（agent 懒加载/冷启动）——autoReply 必须等
+        // 注入 settle（agent 实体就位）再启动，否则 waitForAgentRunStart 找不到实体
+        void injection.then((r) => {
+          if (r.ok) return this.autoReply(binding, message);
+          this.logger.warn(
+            { detail: r.detail, paseoAgentId: binding.paseoAgentId },
+            "注入失败，跳过自动回信",
+          );
+        });
       }
     }
     return settled;

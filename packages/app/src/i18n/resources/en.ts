@@ -2247,6 +2247,12 @@ export const en = {
       diagnostics: "Diagnostics",
       about: "About",
     },
+    browserTools: {
+      title: "Browser tools",
+      warning:
+        "Allow agents to access and control Paseo browser tabs, including logged-in browser state. Only enable this for agents you trust.",
+      updating: "Updating browser tools…",
+    },
     layout: {
       openInSidePane: {
         title: "Open location",

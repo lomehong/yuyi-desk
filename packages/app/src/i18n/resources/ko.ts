@@ -2232,6 +2232,12 @@ export const ko: TranslationResources = {
       diagnostics: "진단",
       about: "정보",
     },
+    browserTools: {
+      title: "Browser tools",
+      warning:
+        "Allow agents to access and control Paseo browser tabs, including logged-in browser state. Only enable this for agents you trust.",
+      updating: "Updating browser tools…",
+    },
     layout: en.settings.layout,
     editor: {
       title: "편집기",

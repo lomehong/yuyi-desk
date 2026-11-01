@@ -13,6 +13,15 @@ const shared = {
 export const pluginSettings = {
   ar: {
     ...shared,
+    logs: {
+      action: "日志",
+      title: "日志：{{id}}",
+      loading: "正在加载日志…",
+      refresh: "刷新",
+      refreshing: "正在刷新…",
+      errorTitle: "无法加载插件日志",
+      empty: "暂无插件输出",
+    },
     screens: {
       open: "فتح",
       offline: "اتصل بهذا المضيف لفتح إعدادات الإضافة.",

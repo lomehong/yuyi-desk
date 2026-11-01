@@ -2270,6 +2270,12 @@ export const fr: TranslationResources = {
       diagnostics: "Diagnostic",
       about: "À propos",
     },
+    browserTools: {
+      title: "Browser tools",
+      warning:
+        "Allow agents to access and control Paseo browser tabs, including logged-in browser state. Only enable this for agents you trust.",
+      updating: "Updating browser tools…",
+    },
     layout: en.settings.layout,
     editor: {
       title: "Éditeur",

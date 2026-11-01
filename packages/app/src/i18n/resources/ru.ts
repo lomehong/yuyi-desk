@@ -2255,6 +2255,12 @@ export const ru: TranslationResources = {
       diagnostics: "Диагностика",
       about: "О приложении",
     },
+    browserTools: {
+      title: "Browser tools",
+      warning:
+        "Allow agents to access and control Paseo browser tabs, including logged-in browser state. Only enable this for agents you trust.",
+      updating: "Updating browser tools…",
+    },
     layout: en.settings.layout,
     editor: {
       title: "Редактор",

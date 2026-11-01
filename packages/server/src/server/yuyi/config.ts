@@ -124,8 +124,15 @@ export function resolveYuyiConfig(config: YuyiConfig): ResolvedYuyiConfig {
     yufu: config.yufu?.trim() || readYufuUrlFromAgentJson() || DEFAULT_YUFU_URL,
     deviceCredential: config.deviceCredential?.trim() || readDeviceCredentialFile(),
     device: config.device?.trim() || `${hostname()}-desk`,
-    // agent 模式连接 token = 身份 token；device 模式 = 设备凭证（缺省回退 agents[0]）
-    token: config.token?.trim() || config.agents[0]?.token,
+    // 连接 token 按主体分派（M1 实证：device hello 对 agent token 会被御符拒绝）：
+    //   device 主体 → 设备凭证（显式 config.token 优先，缺省即 deviceCredential）
+    //   agent  主体 → 身份 token（agents[0]）
+    token:
+      principal === "device"
+        ? config.token?.trim() ||
+          config.deviceCredential?.trim() ||
+          readDeviceCredentialFile()
+        : config.token?.trim() || config.agents[0]?.token,
     agentKind: config.agentKind?.trim() || "yuyi-desk",
     injectEnv: config.injectEnv !== false,
     principal,

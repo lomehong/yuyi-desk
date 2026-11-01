@@ -37,6 +37,15 @@ export interface YuyiLinkOptions {
     binding: YuyiBinding,
     message: YuyiMessage,
   ) => Promise<{ ok: boolean; detail?: string }>;
+  /**
+   * Hub 下发 device/control（管理台闸门操作）——由 service 执行并回执。
+   * op=terminate（停止/归档 Agent）、block（屏蔽自动注入）、release（解除屏蔽）。
+   */
+  onDeviceControl?: (
+    op: "terminate" | "block" | "release",
+    agentId: string,
+    opts?: { reason?: string; until?: number },
+  ) => Promise<{ ok: boolean; detail?: string }>;
 }
 
 export class YuyiLink {
@@ -86,14 +95,31 @@ export class YuyiLink {
       onWelcome: () => {
         void this.registerAll();
       },
-      // M1 未实现设备闸门：device/control 到达即回「未实现」，Hub 侧 10s 应答超时语义正常
+      // Hub 下发 device/control（管理台闸门）→ service 执行 → ack 回执（吸收合并落地）
       onServerFrame: (frame) => {
         if (frame.type !== "device/control") {
           return;
         }
         const control = frame as import("@qianji/protocol").DeviceControlFrame;
-        this.opts.log(`[yuyi] device/control(${control.op}) 到达：M1 未实现闸门，回绝`);
-        this.hub?.rawAck(control.id, false, "yuyi-desk M1: device control not implemented");
+        void (async () => {
+          let result: { ok: boolean; detail?: string };
+          if (this.opts.onDeviceControl) {
+            try {
+              result = await this.opts.onDeviceControl(control.op, control.agentId, {
+                reason: control.reason,
+                until: control.until,
+              });
+            } catch (error) {
+              result = { ok: false, detail: String(error) };
+            }
+          } else {
+            result = { ok: false, detail: "onDeviceControl not wired" };
+          }
+          this.hub?.rawAck(control.id, result.ok, result.detail);
+          this.opts.log?.(
+            `[yuyi] device/control ${control.op} ${control.agentId} -> ok=${result.ok}`,
+          );
+        })();
       },
       onDeliver: async (message: YuyiMessage): Promise<DeliverResult> => {
         const targetName = this.resolveTargetName(message.to.target);

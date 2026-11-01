@@ -69,6 +69,16 @@ function writeTokenCache(path: string, cache: Record<string, TokenCacheEntry>): 
   }
 }
 
+/** 读取 block 名单（文件缺失/损坏 = 空名单，不因持久化问题拒绝服务） */
+function readGateFile(path: string): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 // writeFileSync 在顶部 node:fs 导入
 
 
@@ -81,6 +91,8 @@ export class YuyiService {
   private cachedConfig: ReturnType<typeof resolveYuyiConfig> | null = null;
   /** 本进程代领到的令牌（agentId → token；映射缺 token 的绑定从这取） */
   private claimedTokens = new Map<string, string>();
+  /** 被管理台屏蔽（block）的御符身份——拒绝自动注入/自动回信 */
+  private blockedAgents = new Set<string>();
 
   constructor(private readonly opts: YuyiServiceOptions) {
     this.logger = opts.logger.child({ module: "yuyi" });
@@ -247,10 +259,15 @@ export class YuyiService {
     // 凭证代领（R1「设备=Agent 凭证供给通道」）：映射缺 token 时用设备凭证向御符
     // 申领——必须在连接前完成（agent 模式连接身份就是 agents[0] 的 token）
     await this.ensureTokens(config);
+    // 恢复闸门状态（block 名单持久化于 <home>/yuyi-gate.json，0600）
+    for (const agentId of readGateFile(this.gatePath)) {
+      this.blockedAgents.add(agentId);
+    }
     this.link = new YuyiLink({
       config,
       log: (msg) => this.logger.info(msg),
       deliverToAgent: (binding, message) => this.deliverToAgent(binding, message),
+      onDeviceControl: (op, agentId, opts) => this.handleDeviceControl(op, agentId, opts),
     });
     // 初始绑定：持久层扫描（注册表懒加载，listAgents 只含已初始化 agent）+ 内存扫描
     this.rescanBindings();
@@ -305,6 +322,62 @@ export class YuyiService {
   }
 
   // ---- 内部 ----
+
+  /**
+   * Hub 下发 device/control（管理台闸门，yuyi-agent 吸收合并落地）：
+   *   terminate → 运行中先打断，再归档 Paseo agent（UI 可见、可手动恢复）并解绑
+   *   block     → 屏蔽该身份的自动注入/自动回信（消息由 Hub 入收件箱，不丢）
+   *   release   → 解除屏蔽
+   * agentId 为御符权威 id；block 名单持久化 <home>/yuyi-gate.json（0600）。
+   */
+  private async handleDeviceControl(
+    op: "terminate" | "block" | "release",
+    agentId: string,
+    _opts?: { reason?: string; until?: number },
+  ): Promise<{ ok: boolean; detail?: string }> {
+    const binding = [...this.byPaseo.values()].find((b) => b.agentId === agentId);
+    if (!binding) {
+      return { ok: false, detail: `该身份当前无绑定 agent（${agentId.slice(0, 8)}）` };
+    }
+    const manager = this.opts.agentManager;
+    if (op === "terminate") {
+      try {
+        await manager.cancelAgentRun(binding.paseoAgentId);
+      } catch {
+        // 不在运行中——忽略，归档继续
+      }
+      await manager.archiveAgent(binding.paseoAgentId);
+      this.blockedAgents.add(agentId);
+      this.persistGate();
+      this.link?.unbindPaseo(binding.paseoAgentId);
+      this.byPaseo.delete(binding.paseoAgentId);
+      return { ok: true, detail: `已停止并归档 agent ${binding.paseoAgentId.slice(0, 8)}（身份已屏蔽自动注入）` };
+    }
+    if (op === "block") {
+      this.blockedAgents.add(agentId);
+      this.persistGate();
+      return { ok: true, detail: `已屏蔽 ${binding.name} 的自动注入（release 解除）` };
+    }
+    this.blockedAgents.delete(agentId);
+    this.persistGate();
+    return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
+  }
+
+  private persistGate(): void {
+    try {
+      writeFileSync(
+        this.gatePath,
+        JSON.stringify([...this.blockedAgents], null, 2),
+        { mode: 0o600 },
+      );
+    } catch (error) {
+      this.logger.warn({ err: String(error) }, "yuyi gate persist failed");
+    }
+  }
+
+  private get gatePath(): string {
+    return join(this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"), "yuyi-gate.json");
+  }
 
   /**
    * 凭证代领（移植自御驿 packages/agent credentials.ts 的语义，端点
@@ -478,32 +551,48 @@ export class YuyiService {
     binding: YuyiBinding,
     message: YuyiMessage,
   ): Promise<{ ok: boolean; detail?: string }> {
+    // 管理台屏蔽（block）的身份：拒绝自动注入——回 wakeup_failed 让 Hub 入
+    // 收件箱（消息不丢），release 后可从收件箱补看
+    if (this.blockedAgents.has(binding.agentId)) {
+      return { ok: false, detail: `身份 ${binding.name} 已被管理台屏蔽自动注入` };
+    }
     const prompt = formatYuyiPrompt(message);
-    try {
-      await sendPromptToAgent({
-        agentManager: this.opts.agentManager,
-        agentStorage: this.opts.agentStorage,
-        agentId: binding.paseoAgentId,
-        prompt,
-        logger: this.logger,
-        unarchive: true, // notify 唤醒语义：归档的 agent 也拉起
-        activeTurnBehavior: "steer", // 运行中的 agent → 转向处理新消息
+    // 快速受理（15s ack 超时实证）：注入超过 5s（agent 冷加载/服务冷启动）即回
+    // accepted_async，Hub 不再降级 mail；注入本身继续，失败仅记日志（Hub 侧
+    // 已有收件箱重复保险）。5s 内完成则按真实结果回执。
+    const injection = sendPromptToAgent({
+      agentManager: this.opts.agentManager,
+      agentStorage: this.opts.agentStorage,
+      agentId: binding.paseoAgentId,
+      prompt,
+      logger: this.logger,
+      unarchive: true, // notify 唤醒语义：归档的 agent 也拉起
+      activeTurnBehavior: "steer", // 运行中的 agent → 转向处理新消息
+    })
+      .then(() => ({ ok: true as const, detail: undefined as string | undefined }))
+      .catch((error) => {
+        this.logger.warn(
+          { err: error, paseoAgentId: binding.paseoAgentId },
+          "Yuyi deliver injection failed",
+        );
+        return { ok: false as const, detail: `injection failed: ${String(error)}` };
       });
-    } catch (error) {
-      this.logger.warn(
-        { err: error, paseoAgentId: binding.paseoAgentId },
-        "Yuyi deliver injection failed",
+    const settled = await Promise.race([
+      injection,
+      new Promise<{ ok: true; detail: undefined }>((resolve) =>
+        setTimeout(() => resolve({ ok: true, detail: undefined }), 5000),
+      ),
+    ]);
+    if (settled.ok) {
+      this.logger.info(
+        { from: message.from.name ?? message.from.agentId, to: binding.name },
+        "Yuyi deliver injected",
       );
-      return { ok: false, detail: `injection failed: ${String(error)}` };
+      if (message.expectReply) {
+        void this.autoReply(binding, message);
+      }
     }
-    this.logger.info(
-      { from: message.from.name ?? message.from.agentId, to: binding.name },
-      "Yuyi deliver injected",
-    );
-    if (message.expectReply) {
-      void this.autoReply(binding, message);
-    }
-    return { ok: true };
+    return settled;
   }
 
   /** 等 run start → 等 finish → 以绑定身份回信（notify 模式，replyTo 关联原消息） */

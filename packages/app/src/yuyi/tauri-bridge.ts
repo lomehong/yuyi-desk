@@ -117,7 +117,12 @@ export function installTauriDesktopBridge(): void {
  * daemon 本体由 Tauri（Rust）拉起；这里只向 web 层如实报告它的状态。
  */
 function createInvokeBridge() {
-  async function daemonInfo(): Promise<{ host: string; port: number; logPath: string; home: string }> {
+  async function daemonInfo(): Promise<{
+    host: string;
+    port: number;
+    logPath: string;
+    home: string;
+  }> {
     const invoke = getTauriCore();
     if (!invoke) {
       throw new Error("Tauri invoke unavailable");
@@ -138,7 +143,11 @@ function createInvokeBridge() {
         const res = await fetch(`http://${info.host}:${info.port}/api/status`, {
           signal: AbortSignal.timeout(2000),
         });
-        const body = (await res.json()) as { serverId?: string; hostname?: string; version?: string };
+        const body = (await res.json()) as {
+          serverId?: string;
+          hostname?: string;
+          version?: string;
+        };
         serverId = body.serverId ?? "";
         hostname = body.hostname ?? "";
         version = body.version ?? null;
@@ -167,7 +176,7 @@ function createInvokeBridge() {
     };
   }
 
-  return async function invoke(command: string): Promise<unknown> {
+  return async function invoke(command: string, args?: Record<string, unknown>): Promise<unknown> {
     switch (command) {
       case "get_desktop_settings":
         return {
@@ -188,6 +197,19 @@ function createInvokeBridge() {
       }
       case "cli_daemon_status":
         return "running";
+      // host-runtime 连接桌面托管 daemon 前读取本地凭证（Electron 由 main 进程读
+      // <home>/local-credential；此处转 Tauri 命令，端口校验在 Rust 侧做）
+      case "desktop_local_credential": {
+        const tauriCore = getTauriCore();
+        if (!tauriCore) {
+          throw new Error("Tauri invoke unavailable");
+        }
+        const listen = args?.listen;
+        if (typeof listen !== "string") {
+          return null;
+        }
+        return (await tauriCore("yuyi_local_credential", { listen })) as never;
+      }
       default:
         throw new Error(`Desktop command not available in yuyi shell: ${command}`);
     }

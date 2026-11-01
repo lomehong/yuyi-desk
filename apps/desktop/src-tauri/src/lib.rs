@@ -52,6 +52,46 @@ fn yuyi_daemon_info(state: tauri::State<DaemonConfigSlot>) -> Result<serde_json:
     }))
 }
 
+/// web 垫片用：本地 daemon 凭证（desktop_local_credential 的 Tauri 对应）。
+/// Electron 版校验 pid-lock listen 后返回 <home>/local-credential；这里以壳自己的
+/// daemon 配置端口做同等校验——只有监听端口匹配的请求才回凭证。
+#[tauri::command]
+fn yuyi_local_credential(
+    state: tauri::State<DaemonConfigSlot>,
+    listen: String,
+) -> Result<Option<String>, String> {
+    let guard = state.0.lock().map_err(|_| "config slot poisoned")?;
+    let cfg = guard.as_ref().ok_or_else(|| "daemon config not loaded".to_string())?;
+    let requested = listen.rsplit(':').next().unwrap_or("");
+    let requested: u16 = match requested.parse() {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    if requested != cfg.port() {
+        return Ok(None);
+    }
+    let home = daemon_home();
+    match fs::read_to_string(home.join("local-credential")) {
+        Ok(text) => {
+            let token = text.trim().to_string();
+            if token.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(token))
+            }
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// 数据目录（与分发模板 {{DATA_DIR}} 的解析规则一致：~/.yuyi-desk）
+fn daemon_home() -> PathBuf {
+    let base = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(base).join(".yuyi-desk")
+}
+
 /// web 垫片用：读 daemon 日志尾部
 #[tauri::command]
 fn yuyi_daemon_log_tail(max_bytes: Option<u32>) -> Result<serde_json::Value, String> {
@@ -244,6 +284,7 @@ pub fn run() {
             app_identity,
             daemon_status,
             yuyi_daemon_info,
+            yuyi_local_credential,
             yuyi_daemon_log_tail
         ])
         .setup(move |app| {

@@ -278,6 +278,13 @@ pub fn run() {
     let slot: DaemonSlot = Arc::default();
     let exit_slot = Arc::clone(&slot);
     let app = tauri::Builder::default()
+        // 单实例：二次启动把已有窗口带到前台（防双开撞 daemon/数据目录）
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(DaemonChild(Arc::clone(&slot)))
         .manage(DaemonConfigSlot::default())
         .invoke_handler(tauri::generate_handler![
@@ -304,6 +311,31 @@ pub fn run() {
                     let _ = child.wait();
                 }
             }
+            // 兜底：daemon 可能由上一个壳实例拉起（本壳 DaemonChild 槽位为空）——
+            // 退出时按安装目录匹配本产品线的 node 进程树清理，保证「退出即停」语义
+            kill_orphan_daemon_tree();
         }
     });
+}
+
+/// 杀掉命令行指向本安装目录 runtime 的 node 进程树（daemon supervisor/worker）。
+/// 只匹配本产品目录，不会误伤系统其它 node 进程。
+fn kill_orphan_daemon_tree() {
+    let Some(dir) = exe_dir() else { return };
+    let install = dir.display().to_string().replace('\\', "/");
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | \
+         Where-Object {{ ($_.CommandLine -replace '\\\\','/') -like '*{}*' }} | \
+         ForEach-Object {{ taskkill /F /T /PID $($_.ProcessId) 2>$null }}",
+        install.replace('\'', "''"),
+    );
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = cmd.output();
+    eprintln!("[yuyi-desk] orphan daemon tree cleanup issued (install={})", install);
 }

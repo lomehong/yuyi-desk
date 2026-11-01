@@ -42,7 +42,13 @@
     （Yuyi 0b7c486，部署后生效）；壳单实例锁 + 退出孤儿 daemon 树清理
     （cda8faec0）；**turn 失败可见性**——agent 回合失败（如 provider API 401）
     原本聊天区无任何反馈（上游只在 timeline 收尾流），现弹错误 toast 明示原因
-    （a72f648aa，9 语言）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+    （a72f648aa，9 语言）。**第二轮功能级实测（CDP 真实输入）**：新建工作区→agent
+    创建（daemon 实证）→模型真实回复、终端命令执行（PTY 回显+输出）、文件树同步/
+    文件打开、git 更改面板（分支/±行数统计）、/命令与 @提及浮层、会话历史找回、
+    御驿页签（状态/收件箱/同伴）、搜索、计划创建/编辑、语言切换（中↔英↔俄即时
+    生效+持久化）——全部通过。**测试方法教训**：合成 value-setter 输入不被 RN-web
+    受控 composer 登记，会走「空提交」路径建出无 agent 工作区——UI 测试必须用
+    CDP Input.insertText 等真实输入通道。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
     报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。

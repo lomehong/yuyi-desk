@@ -91,6 +91,7 @@ export const ja: TranslationResources = {
       noFileFound: "{{token}}のファイルが見つかりません",
       folderOutsideWorkspace: "{{path}} はこのワークスペースの外にあります",
       unexpectedDictationError: "音声入力処理中に予期しないエラーが発生しました。",
+      agentTurnFailed: "エージェントのターンが失敗しました：{{detail}}",
     },
     connectionStatus: {
       online: "オンライン",

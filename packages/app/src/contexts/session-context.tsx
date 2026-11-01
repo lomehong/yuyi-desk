@@ -173,6 +173,28 @@ function notifyVoiceAbortFailure(
   }
 }
 
+/**
+ * yuyi fork：把 turn_failed 的 error 字段压成一行可读文本。
+ * daemon 侧 error 常是 JSON 串（如 APIError 的 {"data":{"message":…}}），
+ * 解析不出就按原文本截断展示。
+ */
+function describeTurnFailure(error: string): string {
+  let detail = error;
+  try {
+    const parsed = JSON.parse(error) as {
+      data?: { message?: string };
+      message?: string;
+      name?: string;
+    };
+    detail = parsed.data?.message ?? parsed.message ?? parsed.name ?? error;
+  } catch {
+    // 纯文本错误直接用
+  }
+  detail = detail.trim();
+  if (detail.length > 200) detail = `${detail.slice(0, 200)}…`;
+  return detail;
+}
+
 interface SessionProviderSharedProps {
   children: ReactNode;
   serverId: string;
@@ -370,6 +392,15 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       ) {
         voiceRuntime?.onTurnEvent(serverId, agentId, event.type);
       }
+      // yuyi fork：turn 失败必须有可见反馈——上游只在 timeline 里收尾流，
+      // 用户视角是「发了消息石沉大海」（错误只进 daemon 日志）
+      if (streamEvent.type === "turn_failed") {
+        toast.error(
+          t("common.errors.agentTurnFailed", {
+            detail: describeTurnFailure(streamEvent.error),
+          }),
+        );
+      }
       const turnLiveness = deriveAgentStreamTurnLiveness([
         { event: streamEvent, seq, epoch, timestamp: parsedTimestamp },
       ]);
@@ -471,7 +502,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       setViewedTimelineSync(serverId, null);
       sync.dispose();
     };
-  }, [client, serverId, setInitializingAgents, setViewedTimelineSync, voiceRuntime]);
+  }, [client, serverId, setInitializingAgents, setViewedTimelineSync, voiceRuntime, toast, t]);
 
   useEffect(() => {
     viewedTimelineSyncRef.current?.setConnected(isConnected);

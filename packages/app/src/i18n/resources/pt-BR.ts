@@ -91,6 +91,7 @@ export const ptBR: TranslationResources = {
       noFileFound: "Nenhum arquivo encontrado para {{token}}",
       folderOutsideWorkspace: "{{path}} está fora deste workspace",
       unexpectedDictationError: "Ocorreu um erro inesperado ao processar o ditado.",
+      agentTurnFailed: "Falha do turno do agente: {{detail}}",
     },
     connectionStatus: {
       online: "Online",

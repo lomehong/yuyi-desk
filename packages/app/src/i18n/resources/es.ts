@@ -91,6 +91,7 @@ export const es: TranslationResources = {
       noFileFound: "No se encontró ningún archivo para{{token}}",
       folderOutsideWorkspace: "{{path}} está fuera de este espacio de trabajo",
       unexpectedDictationError: "Se produjo un error inesperado al manejar el dictado.",
+      agentTurnFailed: "Fallo del turno del agente: {{detail}}",
     },
     connectionStatus: {
       online: "En línea",

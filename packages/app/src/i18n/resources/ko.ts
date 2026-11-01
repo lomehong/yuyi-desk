@@ -90,6 +90,7 @@ export const ko: TranslationResources = {
       noFileFound: "{{token}}에 해당하는 파일을 찾을 수 없습니다",
       folderOutsideWorkspace: "{{path}}은(는) 이 워크스페이스 밖에 있습니다",
       unexpectedDictationError: "받아쓰기를 처리하는 중 예기치 않은 오류가 발생했습니다.",
+      agentTurnFailed: "에이전트 턴 실패: {{detail}}",
     },
     connectionStatus: {
       online: "온라인",

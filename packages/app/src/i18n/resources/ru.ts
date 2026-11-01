@@ -91,6 +91,7 @@ export const ru: TranslationResources = {
       noFileFound: "Файл для {{token}} не найден",
       folderOutsideWorkspace: "{{path}} находится вне этого рабочего пространства",
       unexpectedDictationError: "При обработке диктовки произошла непредвиденная ошибка.",
+      agentTurnFailed: "Сбой раунда агента: {{detail}}",
     },
     connectionStatus: {
       online: "Онлайн",

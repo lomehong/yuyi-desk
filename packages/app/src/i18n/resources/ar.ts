@@ -90,6 +90,7 @@ export const ar: TranslationResources = {
       noFileFound: "لم يتم العثور على ملف لـ{{token}}",
       folderOutsideWorkspace: "{{path}} خارج مساحة العمل هذه",
       unexpectedDictationError: "حدث خطأ غير متوقع أثناء معالجة الإملاء.",
+      agentTurnFailed: "فشل دور الوكيل: {{detail}}",
     },
     connectionStatus: {
       online: "متصل",

@@ -90,6 +90,7 @@ export const zhCN: TranslationResources = {
       noFileFound: "未找到 {{token}} 对应的文件",
       folderOutsideWorkspace: "{{path}} 不在此工作区内",
       unexpectedDictationError: "处理听写时发生意外错误。",
+      agentTurnFailed: "Agent 回合失败：{{detail}}",
     },
     connectionStatus: {
       online: "在线",

@@ -86,6 +86,7 @@ export const en = {
       noFileFound: "No file found for {{token}}",
       folderOutsideWorkspace: "{{path}} is outside this workspace",
       unexpectedDictationError: "An unexpected error occurred while handling dictation.",
+      agentTurnFailed: "Agent turn failed: {{detail}}",
     },
     connectionStatus: {
       online: "Online",

@@ -67,4 +67,16 @@ bash deploy/smart-deploy.sh --force-restart   # hub 是后端变更，需强制�
 "device"，且 `~/.yuyi-desk` 凭证代领的 token 走 agent/register 独立验证。
 随后推进 yuyi-agent 吸收合并。
 
+**追加发现与修复（2026-11-01，本地对照实验第二轮）**：hello/welcome 通了之后
+deliver 寻址仍是 `no session matching`——根因是 **Hub v1 功能缺口**：
+`findOnlineTargets` 只让 `conn.identity`（agent 身份连接）参与在线匹配，
+设备主体连接（身份在 agentSet）一律 no-route（peers 不可见同根源）。
+**已在 Yuyi 仓库修复并推送**（plan.ts agentView 扩展 + router.ts
+forwardDeliver 兜底，commit 5ad72ba；本地源码 Hub 双连接闭环验证通过：
+设备连接 register 会话被 sender deliver 精确命中）。**部署机更新部署
+（smart-deploy.sh --force-restart）后，设备主体形态即完整可用**：
+- fork 侧 `principal` 已切回 device（缺省），无需再动；
+- 凭证代领 + agent/register + deliver 寻址全链路生效；
+- yuyi-agent 吸收合并的前置全部解除。
+
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。

@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { ScheduleRow, type ScheduleRowPending } from "@/components/schedules/schedule-row";
@@ -73,6 +74,7 @@ function SchedulesTableRow({
 }): ReactElement {
   const { schedule } = row;
   const { id, serverId } = schedule;
+  const { t } = useTranslation();
   const mutations = useScheduleMutations({ serverId });
   const [pending, setPending] = useState<ScheduleRowPending>(NO_PENDING);
 
@@ -115,9 +117,9 @@ function SchedulesTableRow({
     void (async () => {
       const productName = scheduleProductName(schedule);
       const confirmed = await confirmDialog({
-        title: `Delete ${productName.toLowerCase()}`,
-        message: `Delete "${resolveScheduleTitle(schedule)}"? This cannot be undone.`,
-        confirmLabel: "Delete",
+        title: t("schedules.form.deleteTitle", { name: productName }),
+        message: t("schedules.form.deleteMessage", { name: resolveScheduleTitle(schedule) }),
+        confirmLabel: t("schedules.form.delete"),
         destructive: true,
       });
       if (!confirmed) {
@@ -125,7 +127,7 @@ function SchedulesTableRow({
       }
       await runAction("delete", () => mutations.deleteSchedule(id));
     })();
-  }, [runAction, mutations, id, schedule]);
+  }, [runAction, mutations, id, schedule, t]);
 
   return (
     <ScheduleRow

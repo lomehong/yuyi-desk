@@ -10,6 +10,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useIsFocused } from "expo-router/react-navigation";
 import { CalendarClock, Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { useTranslation } from "react-i18next";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { ExternalLink } from "@/components/ui/external-link";
 import { HostFilter } from "@/components/hosts/host-filter";
@@ -45,10 +46,24 @@ type FormState =
   | { mode: "create" }
   | { mode: "edit"; serverId: string; schedule: ScheduleSummary };
 
-const STATUS_FILTER_OPTIONS: { value: ScheduleBucket; label: string; testID: string }[] = [
-  { value: "runnable", label: "Active", testID: "schedules-filter-active" },
-  { value: "ended", label: "Ended", testID: "schedules-filter-ended" },
-];
+function useStatusFilterOptions(): { value: ScheduleBucket; label: string; testID: string }[] {
+  const { t } = useTranslation();
+  return useMemo(
+    () => [
+      {
+        value: "runnable" as const,
+        label: t("schedules.filter.active"),
+        testID: "schedules-filter-active",
+      },
+      {
+        value: "ended" as const,
+        label: t("schedules.filter.ended"),
+        testID: "schedules-filter-ended",
+      },
+    ],
+    [t],
+  );
+}
 
 const EMPTY_SCHEDULES: AggregatedSchedule[] = [];
 
@@ -63,6 +78,7 @@ export function SchedulesScreen(): ReactElement {
 }
 
 function SchedulesScreenContent(): ReactElement {
+  const { t } = useTranslation();
   const { loadState, hostErrors, isError, refetch } = useSchedules();
   const schedules = loadState.status === "loaded" ? loadState.data : EMPTY_SCHEDULES;
   const { agents } = useAggregatedAgents({ includeArchived: true });
@@ -91,6 +107,7 @@ function SchedulesScreenContent(): ReactElement {
     return ready;
   }, [hosts, runtime, runtimeVersion]);
 
+  const statusFilterOptions = useStatusFilterOptions();
   const [form, setForm] = useState<FormState>({ mode: "closed" });
   const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
   const [statusFilter, setStatusFilter] = useState<ScheduleBucket>("runnable");
@@ -165,7 +182,7 @@ function SchedulesScreenContent(): ReactElement {
 
   return (
     <View style={styles.container}>
-      <MenuHeader title="Schedules" />
+      <MenuHeader title={t("schedules.title")} />
       <SchedulesScreenBody
         rows={visibleRows}
         loadState={loadState}
@@ -173,6 +190,7 @@ function SchedulesScreenContent(): ReactElement {
         showLoadError={showLoadError}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
+        statusFilterOptions={statusFilterOptions}
         showHostFilter={showHostFilter}
         hosts={hosts}
         selectedHost={selectedHost}
@@ -199,6 +217,7 @@ function SchedulesScreenBody({
   showLoadError,
   statusFilter,
   onStatusFilterChange,
+  statusFilterOptions,
   showHostFilter,
   hosts,
   selectedHost,
@@ -213,6 +232,7 @@ function SchedulesScreenBody({
   showLoadError: boolean;
   statusFilter: ScheduleBucket;
   onStatusFilterChange: (value: ScheduleBucket) => void;
+  statusFilterOptions: { value: ScheduleBucket; label: string; testID: string }[];
   showHostFilter: boolean;
   hosts: ReturnType<typeof useHosts>;
   selectedHost: string;
@@ -221,6 +241,7 @@ function SchedulesScreenBody({
   onCreate: () => void;
   onEdit: (schedule: AggregatedSchedule) => void;
 }): ReactElement {
+  const { t } = useTranslation();
   const bodyState = resolveSchedulesScreenBodyState({ loadState, showLoadError });
 
   if (bodyState.kind === "loading") {
@@ -234,9 +255,9 @@ function SchedulesScreenBody({
   if (bodyState.kind === "load-error") {
     return (
       <View style={styles.centered}>
-        <Text style={styles.message}>Unable to load schedules</Text>
+        <Text style={styles.message}>{t("schedules.loadError")}</Text>
         <Button variant="ghost" onPress={onRetry} testID="schedules-retry">
-          Try again
+          {t("schedules.retry")}
         </Button>
       </View>
     );
@@ -280,7 +301,7 @@ function SchedulesScreenBody({
             size="sm"
             value={statusFilter}
             onValueChange={onStatusFilterChange}
-            options={STATUS_FILTER_OPTIONS}
+            options={statusFilterOptions}
             testID="schedules-status-filter"
           />
         </View>
@@ -291,7 +312,7 @@ function SchedulesScreenBody({
           size="sm"
           testID="schedules-new"
         >
-          New schedule
+          {t("schedules.newSchedule")}
         </Button>
       </View>
       <ScrollView
@@ -315,39 +336,42 @@ function SchedulesEmptyState({
   onCreate: () => void;
   testID?: string;
 }): ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.emptyState} testID={testID}>
       <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
       <View style={styles.emptyTextStack}>
-        <Text style={styles.emptyTitle}>No active schedules</Text>
-        <Text style={styles.emptyDescription}>Schedules run agents on a cadence.</Text>
-        <ExternalLink href="https://paseo.sh/docs/schedules" label="See docs" />
+        <Text style={styles.emptyTitle}>{t("schedules.empty.title")}</Text>
+        <Text style={styles.emptyDescription}>{t("schedules.empty.description")}</Text>
+        <ExternalLink href="https://paseo.sh/docs/schedules" label={t("schedules.empty.seeDocs")} />
       </View>
       <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-empty-new">
-        New schedule
+        {t("schedules.newSchedule")}
       </Button>
     </View>
   );
 }
 
 function SchedulesEndedEmptyState(): ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.filterEmpty}>
       <View style={styles.endedEmptyState}>
         <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
-        <Text style={styles.emptyTitle}>No ended schedules</Text>
+        <Text style={styles.emptyTitle}>{t("schedules.endedEmpty")}</Text>
       </View>
     </View>
   );
 }
 
 function ScheduleHostErrorsBanner({ errors }: { errors: ScheduleHostError[] }): ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.errorsBannerWrap}>
       <View style={styles.errorsBanner} testID="schedules-host-errors">
         {errors.map((error) => (
           <Text key={error.serverId} style={styles.errorsBannerText}>
-            {`${error.serverName}: Could not load schedules`}
+            {t("schedules.hostError", { host: error.serverName })}
           </Text>
         ))}
       </View>

@@ -95,7 +95,33 @@ export function formatCadence(cadence: ScheduleCadence): string {
  * expression is valid but not one of the recognized patterns (callers fall
  * back to showing the raw expression).
  */
-export function describeCron(cadence: CronCadence): string | null {
+/** Localizable fragments for describeCron; callers pass their locale's values. */
+export interface CronDescriptionStrings {
+  everyMinute: string;
+  everyHour: string;
+  everyHourAt: string;
+  daily: string;
+  weekdays: string;
+  weekends: string;
+  dayPrefix: string;
+  atTime: string;
+}
+
+export const CRON_STRINGS_EN: CronDescriptionStrings = {
+  everyMinute: "Every minute",
+  everyHour: "Every hour",
+  everyHourAt: "Every hour at :{{minute}}",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  weekends: "Weekends",
+  dayPrefix: "{{day}}s",
+  atTime: "{{day}} at {{time}} {{timezone}}",
+};
+
+export function describeCron(
+  cadence: CronCadence,
+  strings: CronDescriptionStrings = CRON_STRINGS_EN,
+): string | null {
   const trimmed = cadence.expression.trim();
   if (validateCron(trimmed) !== null) {
     return null;
@@ -111,7 +137,7 @@ export function describeCron(cadence: CronCadence): string | null {
   const isWildcardDom = dayOfMonth === "*";
 
   if (minute === "*" && hour === "*" && isWildcardMonth && isWildcardDom && dayOfWeek === "*") {
-    return "Every minute";
+    return strings.everyMinute;
   }
 
   if (!isLiteralMinute || !isWildcardMonth || !isWildcardDom) {
@@ -123,7 +149,9 @@ export function describeCron(cadence: CronCadence): string | null {
     if (dayOfWeek !== "*") {
       return null;
     }
-    return minuteNum === 0 ? "Every hour" : `Every hour at :${pad2(minuteNum)}`;
+    return minuteNum === 0
+      ? strings.everyHour
+      : strings.everyHourAt.replace("{{minute}}", pad2(minuteNum));
   }
 
   if (!/^\d+$/.test(hour)) {
@@ -131,23 +159,28 @@ export function describeCron(cadence: CronCadence): string | null {
   }
   const time = `${pad2(Number.parseInt(hour, 10))}:${pad2(minuteNum)}`;
   const timezone = cadence.timezone ?? "UTC";
-  const dayLabel = describeCronDay(dayOfWeek);
-  return dayLabel ? `${dayLabel} at ${time} ${timezone}` : null;
+  const dayLabel = describeCronDay(dayOfWeek, strings);
+  return dayLabel
+    ? strings.atTime
+        .replace("{{day}}", dayLabel)
+        .replace("{{time}}", time)
+        .replace("{{timezone}}", timezone)
+    : null;
 }
 
-function describeCronDay(dayOfWeek: string): string | null {
+function describeCronDay(dayOfWeek: string, strings: CronDescriptionStrings): string | null {
   if (dayOfWeek === "*") {
-    return "Daily";
+    return strings.daily;
   }
   if (dayOfWeek === "1-5") {
-    return "Weekdays";
+    return strings.weekdays;
   }
   if (dayOfWeek === "0,6" || dayOfWeek === "6,0") {
-    return "Weekends";
+    return strings.weekends;
   }
   if (/^\d$/.test(dayOfWeek)) {
     const day = DAY_NAMES[Number.parseInt(dayOfWeek, 10)];
-    return day ? `${day}s` : null;
+    return day ? strings.dayPrefix.replace("{{day}}", day) : null;
   }
   return null;
 }

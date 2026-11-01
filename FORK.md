@@ -51,16 +51,20 @@
 （4503）；同机 agent 主体路径正常；本机直连御符 `POST /api/v1/auth/device/verify` 返回
 200 `{valid:true, device_id, owner_user_id, allowed_agents...}`（数据完整）。
 
-判断：非网络整机问题（agent verify 同主机不同端点正常）；最可能是**部署 Hub 与御符的
-版本错位**——部署实例的 verifyDevice 实现（请求体/端点）与当前御符不匹配（如旧实现触发
-yufu 400 → 被归为 unavailable），或部署实例到御符走了不同内网路径。
+**已实锤（本地对照实验，2026-11-01）**：用本仓库源码直接起 Hub（bun run hub/server.ts
+--port 17377 --yufu-url https://yufu.qianji.io），同一设备凭证发 device hello——
+welcome 正常回带 `connectionPrincipal:"device"`，连接建立。即 **Hub 代码没问题，
+部署实例版本落后**（其 verifyDevice 路径与当前御符不匹配）。
 
-处理清单（需部署侧）：
-1. 部署机 `curl -s -X POST -H 'Content-Type: application/json' -d '{"token":"<dev-*>"}'`
-   `https://yufu.qianji.io/api/v1/auth/device/verify` 复测出站；
-2. 查 Hub 日志 `[hub] 身份服务无法验证设备连接` 行（verifyDevice 的 reason 已随行输出）；
-3. 核对部署 Hub 版本 vs 本仓库 hub/yufu-client.ts 的 verifyDevice，升级到一致版本；
-4. 修复后 fork 侧把 `config.json` 的 `yuyi.principal` 从 "agent" 切回 "device"（缺省），
-   并推进 yuyi-agent 吸收合并。
+**处理：更新部署 Hub**（在部署机/仓库根）：
+```bash
+bash deploy/smart-deploy.sh --force-restart   # hub 是后端变更，需强制重启
+```
+（会先过 check-deploy.sh 他证门禁；systemd 服务 yuyi-hub.service 自动拉起）
+
+升级后验证（任一端一条探针即证）：fork 侧把 config.json 的 `yuyi.principal`
+从 "agent" 切回 "device"（缺省）重启——`/api/yuyi/status` 的 principal 应为
+"device"，且 `~/.yuyi-desk` 凭证代领的 token 走 agent/register 独立验证。
+随后推进 yuyi-agent 吸收合并。
 
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。

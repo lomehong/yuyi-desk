@@ -115,3 +115,15 @@ mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
 - yuyi-agent 吸收合并的前置全部解除（control/state/闸门已交付）。
 
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。
+
+## 目录布局（2026-11-05 起）
+
+本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原
+`E:\Development\Code\nodejs\yuyi-desk` 已归档为 `yuyi-desk.bak`）。
+- 主仓库 workspaces 已排除 `!packages/yuyi-desk`，两套 workspace 互不干扰；
+- submodule URL 暂为本机路径；建立远端后切换：
+  `git submodule set-url packages/yuyi-desk <remote-url>`；
+- 新机器克隆主仓库后拉取设备端：
+  `git submodule update --init packages/yuyi-desk`（需
+  `git config --global protocol.file.allow always` 或换远程 URL）；
+- 上游 paseo 同步通道不变：本仓库 origin 仍指上游，cherry-pick 照旧。

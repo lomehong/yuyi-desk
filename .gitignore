@@ -98,3 +98,6 @@ app.json
 
 # Project-local Serena configuration and memories.
 .serena/
+
+# e2e 本地运行产物
+.paseo-e2e/

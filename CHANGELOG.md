@@ -1,3 +1,8 @@
+# 更新日志
+
+> 本仓库 fork 自 [getpaseo/paseo](https://github.com/getpaseo/paseo)。
+> 以下上游历史保留原样；御驿改造记录见 [FORK.md](FORK.md) 与 git log。
+
 # Changelog
 
 Not released yet. These changes are on `main` but not in 0.14.0; the next release entry includes them.

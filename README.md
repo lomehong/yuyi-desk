@@ -1,232 +1,79 @@
 <p align="center">
-  <img src="packages/website/public/logo.svg" width="64" height="64" alt="Paseo logo">
+  <img src="apps/desktop/src-tauri/icons/icon.png" width="96" height="96" alt="御驿 Yuyi Desk">
 </p>
 
-<h1 align="center">Paseo</h1>
+<h1 align="center">御驿 Yuyi Desk</h1>
 
 <p align="center">
-  <a href="README.md">English</a> ·
-  <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="README.ja.md">日本語</a> ·
-  <a href="README.ko.md">한국어</a>
+  御驿设备端 —— 把本地 AI Coding Agent 接入御驿通信体系
 </p>
 
-<p align="center">
-  <a href="https://github.com/getpaseo/paseo/stargazers">
-    <img src="https://img.shields.io/github/stars/getpaseo/paseo?style=flat&logo=github" alt="GitHub stars">
-  </a>
-  <a href="https://github.com/getpaseo/paseo/releases">
-    <img src="https://img.shields.io/github/v/release/getpaseo/paseo?style=flat&logo=github" alt="GitHub release">
-  </a>
-  <a href="https://x.com/moboudra">
-    <img src="https://img.shields.io/badge/%40moboudra-555?logo=x" alt="X">
-  </a>
-  <a href="https://discord.gg/jz8T2uahpH">
-    <img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord">
-  </a>
-  <a href="https://www.reddit.com/r/PaseoAI/">
-    <img src="https://img.shields.io/badge/Reddit-555?logo=reddit" alt="Reddit">
-  </a>
-</p>
+---
 
-<p align="center">One interface for Claude Code, Codex, Copilot, OpenCode, Pi, Antigravity, and Muse Code agents.</p>
+## 这是什么
 
-<p align="center">
-  <img src="https://paseo.sh/hero-mockup.png" alt="Paseo app screenshot" width="100%">
-</p>
+**御驿 Yuyi Desk** 是御驿（Yuyi）体系的设备端桌面应用：在一台开发机上编排、驱动并观测本地 AI Coding Agent（opencode 等.provider），并通过御符（Yufu）身份与御驿 Hub（Yuyi）接入跨设备消息体系——手机、管理台、其它 Agent 都能寻址到这台机器上的 Agent。
 
-<p align="center">
-  <img src="https://paseo.sh/mobile-mockup.png" alt="Paseo mobile app" width="100%">
-</p>
+它 fork 自 [getpaseo/paseo](https://github.com/getpaseo/paseo)（Apache-2.0），在保留其 daemon 编排与全端客户端骨架的基础上，将御驿协议作为一等公民原生植入（溯源与改造准则见 [FORK.md](FORK.md)）。
 
-Paseo is an open source agentic development environment for desktop, mobile, web, and CLI. Open the desktop app and work: agents, editor, terminals, diffs, pull requests, and a browser in one window. Run many agents at once, each in its own worktree, on one machine or several. The mobile app is the full app, native on iOS and Android.
+## 核心能力
 
-- **Parallel agents:** Run many agents at once, each in its own worktree.
-- **Built-in orchestration:** Agents in Paseo can create worktrees, launch other agents, and talk to them, across providers.
-- **Complete development workflow:** Edit files, review diffs, open pull requests, and run terminals, in split panes you arrange how you want.
-- **Self-hosted:** Agents run on your machine with your full dev environment. Use your tools, your configs, and your skills.
-- **Multi-provider:** Claude Code, Codex, Copilot, OpenCode, Pi, Antigravity, and Muse Code through the same interface. Pick the right model for each job.
-- **Voice control:** Dictate tasks or talk through problems in voice mode. Hands-free when you need it.
-- **Cross-device:** iOS, Android, desktop, web, and CLI. Start work at your desk, check in from your phone, script it from the terminal.
-- **Privacy-first:** Paseo doesn't have any telemetry, tracking, or forced log-ins.
+- **Agent 编排**：创建/管理多个本地 Agent（provider/model/思考级别/权限模式可选），对话式驱动，回复流实时渲染
+- **御驿链路**：设备主体单连接接入 Hub；消息注入 → Agent 执行 → 自动回信闭环；收件箱兜底不丢消息
+- **管理台闸门**：远程 block / release / terminate 任意 Agent，带时效（until）、原因与审计留痕
+- **桌面体验**：无边框「容器 + 卡片」窗口、顶栏侧栏开关、深浅主题、9 语言界面（简体中文 / English / 日本語 / 한국어 等）
+- **工作区工具**：终端（PTY）、文件树、git 更改与差异、计划任务（定时驱动 Agent）、命令与 @文件 提及
 
-[Run parallel tasks in Paseo](https://paseo.sh/docs/parallel-development): start agents in separate worktrees, review their diffs, run each app, and check it in the built-in browser.
+## 架构
 
-## Sponsors
+```
+┌─ 御驿 Yuyi Desk（Tauri 2 壳，Windows）────────────┐
+│  WebView：React Native Web 客户端界面              │
+│  Rust 侧：守护进程生命周期 / 单实例 / 本地凭证      │
+└──────────────┬───────────────────────────────────┘
+               │ 随包拉起（node + 完整依赖树）
+┌──────────────┴───────────────────────────────────┐
+│  Daemon：Agent 进程编排 / 会话 / 终端 / 定时计划    │
+│  yuyi 链路：设备凭证 → Hub(WebSocket) → 注入/回信   │
+└──────────────┬───────────────────────────────────┘
+               │ 御符身份验证 · 御驿 Hub 消息面
+        御驿 Hub（跨设备）· 管理台 · 手机端
+```
 
-<!-- Sponsors: one cell per sponsor in the order of packages/website/src/data/sponsors.ts, then "become a sponsor" cells up to three. -->
-<table>
-  <tr>
-    <td align="center" width="33%"><a href="https://hoplite.sh/?utm_source=paseo&utm_medium=readme&utm_campaign=sponsor"><picture><source media="(prefers-color-scheme: dark)" srcset="packages/website/public/sponsors/hoplite-on-dark.svg"><img src="packages/website/public/sponsors/hoplite-on-light.svg" alt="Hoplite" height="56"></picture></a><br><sub>Cloud coding agents</sub></td>
-    <td align="center" width="33%"><a href="https://paseo.sh/sponsor">Become a sponsor</a></td>
-    <td align="center" width="33%"><a href="https://paseo.sh/sponsor">Become a sponsor</a></td>
-  </tr>
-</table>
+## 目录结构
 
-## Plugins
+```
+packages/
+  app/        客户端界面（Expo/React Native Web，9 语言）
+  server/     daemon 内核（Agent 编排、会话、终端、yuyi 链路）
+  client/     daemon 客户端协议实现
+  protocol/   通信协议与类型
+  relay/      远程接入中继（手机配对）
+apps/
+  desktop/    Tauri 2 桌面壳（Rust）+ 打包脚本 + 发布流程
+```
 
-Plugins run on the daemon and show up in every client you connect, with the same UI on desktop, web,
-iOS, and Android. Write a plugin once and it is on your phone.
+> 本仓库以 git submodule 形式挂载于御驿主仓库 `Yuyi/packages/yuyi-desk`，布局与克隆说明见 [FORK.md](FORK.md)。
 
-- **UI:** screens, sidebar items, workspace panels, Command Center items, slash commands, composer pills, attachment sources, timeline items, themes.
-- **Agent lifecycle:** change configuration, environment, and MCP servers, answer permissions, follow up when a turn ends.
-- **Providers:** add a coding agent as a provider.
+## 构建与安装
 
-Install from the registry with `paseo plugin add owner/slug`, or from Git or a local directory.
-
-**[Browse plugins](https://paseo.sh/plugins)** · **[Plugin docs](https://paseo.sh/docs/plugins)**
-
-Plugins run with access to your daemon machine and inside connected clients; install only code you trust.
-
-## Getting Started
-
-Paseo runs a local server called the daemon that manages your coding agents. Clients like the desktop app, mobile app, web app, and CLI connect to it.
-
-### Prerequisites
-
-You need at least one agent CLI installed and configured with your credentials:
-
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- [Codex](https://github.com/openai/codex)
-- [GitHub Copilot](https://github.com/features/copilot/cli/)
-- [OpenCode](https://github.com/anomalyco/opencode)
-- [Pi](https://pi.dev)
-- [Antigravity](https://paseo.sh/docs/supported-providers#antigravity)
-- [Muse Code](https://paseo.sh/docs/muse-code)
-
-### Desktop app (recommended)
-
-Download it from [paseo.sh/download](https://paseo.sh/download) or the [GitHub releases page](https://github.com/getpaseo/paseo/releases). Open the app and the daemon starts automatically. Nothing else to install.
-
-To connect from your phone, open **Settings → your host → Pair Device**.
-
-### Server
-
-For a server, a VM, or any machine without the desktop app. Install the CLI and start the daemon:
+依赖：Node.js 24+、Rust（Tauri）、Windows（当前分发目标）。
 
 ```bash
-npm install -g @getpaseo/cli
-paseo
+# 1) 安装依赖并构建工作区
+npm install
+
+# 2) 打包 daemon 运行时（一键，含全部防坑处理）
+node apps/desktop/scripts/bundle-runtime.mjs
+
+# 3) 构建桌面壳（产物：apps/desktop/src-tauri/target/release/bundle/nsis/）
+cd apps/desktop && npm run build
 ```
 
-Paseo starts, then asks whether to enable the end-to-end encrypted relay for device pairing. If you decline, connect directly over TCP, Tailscale, or another VPN. The desktop, mobile, and web apps connect to this daemon like any other host.
+发布、代码签名与自更新流程见 [apps/desktop/RELEASE.md](apps/desktop/RELEASE.md)。
 
-For full setup and configuration, see:
+## Fork 溯源与许可
 
-- [Docs](https://paseo.sh/docs)
-- [Connectivity guide](https://paseo.sh/docs/connectivity)
-- [Configuration reference](https://paseo.sh/docs/configuration)
-
-### Docker
-
-Run the Paseo daemon and self-hosted web UI in Docker:
-
-```bash
-docker run -d --name paseo \
-  -p 6767:6767 \
-  -e PASEO_PASSWORD=change-me \
-  -v "$PWD/paseo-home:/home/paseo" \
-  -v "$PWD:/workspace" \
-  ghcr.io/getpaseo/paseo:latest
-```
-
-Open `http://localhost:6767` after it starts. Extend the base image with the agent CLIs you use, then provide credentials through environment variables or the persistent `/home/paseo` volume. See the [Docker documentation](docs/docker.md) for full setup details.
-
-## CLI
-
-Everything you can do in the app, you can do from the terminal.
-
-```bash
-paseo run --provider claude/opus-4.6 "implement user authentication"
-paseo run --provider codex/gpt-5.5 --worktree feature-x "implement feature X"
-
-paseo ls                           # list running agents
-paseo attach abc123                # stream live output
-paseo send abc123 "also add tests" # follow-up task
-
-# run on a remote daemon; --cwd is a path on that host
-paseo run --host workstation.local:6767 --cwd /workspace "run the full test suite"
-```
-
-See the [full CLI reference](https://paseo.sh/docs/cli) for more.
-
-## TypeScript SDK
-
-Build issue integrations, dashboards, and orchestration services with `@getpaseo/client`:
-
-```ts
-import { createPaseoClient } from "@getpaseo/client";
-
-const client = createPaseoClient({ url: "ws://127.0.0.1:6767/ws" });
-await client.connect();
-
-const agent = await client.agents.create({
-  config: { provider: "codex/gpt-5.5" },
-  cwd: "/Users/me/dev/storefront",
-  prompt: "Review the current diff and name the riskiest change.",
-});
-
-const result = await agent.waitForFinish();
-console.log(result.lastMessage);
-
-await client.close();
-```
-
-See the [SDK quickstart](https://paseo.sh/docs/sdk/quickstart), [recipes](https://paseo.sh/docs/sdk/recipes), and [API reference](https://paseo.sh/docs/sdk/reference).
-
-## Skills
-
-Skills teach your agent to use Paseo to orchestrate other agents.
-
-```bash
-npx skills add getpaseo/paseo
-```
-
-Then use them in any agent conversation:
-
-- `/paseo-handoff` — hand off work between agents. I use this to plan with Claude and then handoff to Codex to implement.
-- `/paseo-advisor` — spin up a single agent as an advisor for a second opinion, without delegating the work itself.
-- `/paseo-committee` — form a committee of two contrasting agents to step back, do root cause analysis, and produce a plan.
-
-## Development
-
-Quick monorepo package map:
-
-- `packages/server`: Paseo daemon (agent process orchestration, WebSocket API, MCP server)
-- `packages/app`: Expo client (iOS, Android, web)
-- `packages/cli`: `paseo` CLI for daemon and agent workflows
-- `packages/desktop`: Electron desktop app
-- `packages/relay`: Relay transport and encryption used by the daemon and clients
-- `packages/website`: Marketing site and documentation (`paseo.sh`)
-
-Common commands:
-
-```bash
-# run all local dev services
-npm run dev
-
-# run individual surfaces
-npm run dev:server
-npm run dev:app
-npm run dev:desktop
-npm run dev:website
-
-# build the server stack
-npm run build:server
-
-# repo-wide checks
-npm run typecheck
-```
-
-## Support Paseo
-
-Paseo is an independent project used by tens of thousands of developers daily, built by one person and funded by the people who use it. Support the work on [GitHub Sponsors](https://github.com/sponsors/boudra). Companies can [sponsor Paseo](https://paseo.sh/sponsor#spot) monthly and have their logo shown at the top of this README and on the paseo.sh homepage and docs.
-
-## Related projects
-
-- [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay) — official distributed relay, written in Elixir
-- [paseo-vscode](https://marketplace.visualstudio.com/items?itemName=hinnes.paseo-vscode) — VS Code extension
-
-## License
-
-Apache-2.0
+- 上游：[getpaseo/paseo](https://github.com/getpaseo/paseo)，基线 commit `fd65985e`，Apache-2.0
+- 本仓库按 Apache-2.0 保留原 LICENSE 与版权声明；改造明细与 upstream 同步策略见 [FORK.md](FORK.md)
+- 禁止依赖 `@getpaseo/*` npm 发布包——所有内部互引指向本仓库 workspace 源码

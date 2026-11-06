@@ -9,10 +9,16 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { redactSecrets } from "./redact.js";
 import { z } from "zod";
 
 /** MCP 工具面对宿主（YuyiService）的最小依赖，避免循环导入 */
 export interface YuyiMcpHost {
+  /**
+   * 出站剥除用的已知凭证原文（P0-2 fail-closed）：设备凭证与各映射 token。
+   * 只用于 redactSecrets 的值匹配，绝不出现在任何工具返回里。
+   */
+  knownSecrets(): string[];
   /** 该 Paseo agent 是否绑定御驿身份（返回绑定的公开视图，不含 token） */
   bindingFor(paseoAgentId: string): { name: string; agentId: string; paseoAgentId: string } | undefined;
   /** 以该 agent 的绑定身份上行发送 */
@@ -44,12 +50,18 @@ export interface YuyiMcpServerOptions {
   host: YuyiMcpHost;
 }
 
-function text(text: string, isError = false): CallToolResult {
-  return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };
+/**
+ * 工具返回唯一出口（P0-2）：所有文本先过 redactSecrets——已知凭证值与凭证形态
+ * 一律 [REDACTED]，错误串里意外夹带的机密也出不去（fail-closed）。
+ */
+function makeTextFn(redact: (s: string) => string) {
+  return (t: string, isError = false): CallToolResult =>
+    ({ content: [{ type: "text", text: redact(t) }], ...(isError ? { isError: true } : {}) });
 }
 
 export async function createYuyiMcpServer(options: YuyiMcpServerOptions): Promise<McpServer> {
   const { callerAgentId, host } = options;
+  const text = makeTextFn((s) => redactSecrets(s, host.knownSecrets()));
   const server = new McpServer({ name: "yuyi-mcp", version: "0.1.0" });
 
   const bound = () =>

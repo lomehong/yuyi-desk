@@ -153,6 +153,25 @@ export class YuyiService {
 
   // ---- YuyiMcpHost 实现（/mcp/yuyi 工具面；返回值不含机密） ----
 
+  /**
+   * 出站剥除用的凭证原文（P0-2）：设备级连接 token、设备凭证、各映射 token。
+   * 只供 redactSecrets 值匹配；mcp-server 的 text() 出口统一剥除。
+   */
+  knownSecrets(): string[] {
+    const config = this.cachedConfig;
+    if (!config) return [];
+    const secrets: string[] = [];
+    if (config.token) secrets.push(config.token);
+    for (const agent of config.agents) {
+      if (agent.token) secrets.push(agent.token);
+    }
+    // 绑定态 token（代领结果在 YuyiBinding.token，与 config 可能不同批）
+    for (const binding of this.byPaseo.values()) {
+      if (binding.token) secrets.push(binding.token);
+    }
+    return secrets;
+  }
+
   bindingFor(paseoAgentId: string): { name: string; agentId: string; paseoAgentId: string } | undefined {
     const binding = this.byPaseo.get(paseoAgentId);
     return binding
@@ -273,6 +292,32 @@ export class YuyiService {
             error: String(error),
           };
         }
+      }),
+    );
+    return { bindings: results };
+  }
+
+  /**
+   * 各收件身份的未读计数（P0-1 桌面通知轮询用）：只计数不取内容、不标记下发，
+   * 高频轮询不产生投递副作用。unread 为 null 表示该来源当前不可用（未连接等），
+   * 调用方不得当作 0。
+   */
+  async unreadSnapshot(): Promise<{
+    bindings: Array<{ name: string; recipientID: string; unread: number | null }>;
+  }> {
+    const bindings = [...this.byPaseo.values()];
+    const seen = new Set<string>();
+    const targets = bindings.filter((b) => {
+      const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
+      if (seen.has(recipientID)) return false;
+      seen.add(recipientID);
+      return true;
+    });
+    const results = await Promise.all(
+      targets.map(async (b) => {
+        const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
+        const unread = this.link ? await this.link.inboxCount(recipientID) : undefined;
+        return { name: b.name, recipientID, unread: unread === undefined ? null : unread };
       }),
     );
     return { bindings: results };

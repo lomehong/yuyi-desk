@@ -240,6 +240,19 @@ export class YuyiLink {
     return this.hub.inboxDrain(recipient, 20);
   }
 
+  /**
+   * 只问 Hub 侧未读数（limit=0，不取内容、不标记已下发）——供桌面通知轮询这类
+   * 高频探测使用；返回 undefined 表示该来源当前不可用（未连接/查询失败）。
+   */
+  async inboxCount(recipient?: string): Promise<number | undefined> {
+    if (!this.hub?.connected) return undefined;
+    try {
+      return await this.hub.inboxCount(recipient);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** 透传任意请求帧到真 Hub（device/state 上报等；超时不重试，下周期重报） */
   rawRequest(frame: { id: string } & Record<string, unknown>): Promise<unknown> {
     if (!this.hub?.connected) throw new Error("yuyi hub offline");

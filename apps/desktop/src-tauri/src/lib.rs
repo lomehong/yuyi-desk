@@ -278,6 +278,8 @@ pub fn run() {
     let slot: DaemonSlot = Arc::default();
     let exit_slot = Arc::clone(&slot);
     let app = tauri::Builder::default()
+        // P0-1 桌面通知：系统弹屏（抑制逻辑在 notify_loop 内）
+        .plugin(tauri_plugin_notification::init())
         // 单实例：二次启动把已有窗口带到前台（防双开撞 daemon/数据目录）
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -297,6 +299,9 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || ensure_daemon(&handle));
+            // P0-1 通知轮询线程：独立于 daemon 拉起，daemon 未就绪时静默重试
+            let notify_handle = app.handle().clone();
+            std::thread::spawn(move || notify_loop(notify_handle));
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -338,4 +343,200 @@ fn kill_orphan_daemon_tree() {
     }
     let _ = cmd.output();
     eprintln!("[yuyi-desk] orphan daemon tree cleanup issued (install={})", install);
+}
+
+// ---------------------------------------------------------------------------
+// P0-1 桌面通知弹屏桥（借鉴 Reason Network notify）
+//
+// 数据流：Rust 轮询 daemon GET /api/yuyi/unread（计数探针，不取内容不标记下发，
+// 无投递副作用）→ 计数上涨时取一次 /api/yuyi/inbox 做差集 → 对新增消息弹系统通知。
+//
+// 端侧抑制（刻意不放 Hub 层——Hub 已有 notify 限速与 wake 冷却，再节流会违反
+// 「消息不丢」）：
+//   1. 每发送人去重窗口 SENDER_DEDUPE_MS：窗口内同发送人后续消息照常入箱，只是不弹；
+//   2. 过期不弹 STALE_MS：入箱超过该时长的消息只入箱不弹（避免恢复在线后弹风暴）；
+//   3. 每轮最多弹 MAX_TOASTS_PER_POLL 条，其余记入 seen 等下一轮（消息不丢，弹屏节流）。
+// ---------------------------------------------------------------------------
+
+/// 轮询间隔（计数探针无副作用，20s 兼顾即时感）
+const NOTIFY_POLL_MS: u64 = 20_000;
+/// 每发送人去重窗口：窗口内同发送人只弹第一条
+const SENDER_DEDUPE_MS: u64 = 10 * 60_000;
+/// 过期不弹：入箱超过该时长的消息恢复在线后不再弹（避免弹风暴）
+const STALE_MS: u64 = 10 * 60_000;
+/// 单轮最多弹屏数
+const MAX_TOASTS_PER_POLL: usize = 3;
+
+#[derive(serde::Deserialize, Default)]
+struct UnreadBinding {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    unread: Option<i64>,
+}
+#[derive(serde::Deserialize, Default)]
+struct UnreadSnapshot {
+    #[serde(default)]
+    bindings: Vec<UnreadBinding>,
+}
+#[derive(serde::Deserialize, Default)]
+struct InboxBinding {
+    #[serde(default)]
+    entries: Vec<InboxEntry>,
+}
+#[derive(serde::Deserialize, Default)]
+struct InboxSnapshot {
+    #[serde(default)]
+    bindings: Vec<InboxBinding>,
+}
+#[derive(serde::Deserialize, Default)]
+struct InboxEntry {
+    #[serde(default)]
+    message: InboxMessage,
+    #[serde(default)]
+    received_at: Option<u64>,
+}
+#[derive(serde::Deserialize, Default)]
+struct InboxMessage {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    time: Option<u64>,
+    #[serde(default)]
+    from: Option<InboxFrom>,
+}
+#[derive(serde::Deserialize, Default)]
+struct InboxFrom {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    device: String,
+}
+
+fn http_get_json(url: &str) -> Option<serde_json::Value> {
+    ureq::get(url)
+        .timeout(std::time::Duration::from_secs(5))
+        .call()
+        .ok()?
+        .into_json()
+        .ok()
+}
+
+fn notify_loop(app: tauri::AppHandle) {
+    // 绑定名 -> 计数基线；首轮只建基线不弹（防启动风暴）
+    let mut baseline: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    // 已处理过的 message.id（防同条重复弹；超限裁剪防膨胀）
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // 发送人 -> 上次弹屏时刻
+    let mut last_toast_at: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(NOTIFY_POLL_MS));
+
+        let Some(base) = daemon_base_url() else { continue };
+
+        // 1) 计数探针：unread=null 表示来源不可用（未连接等），跳过——不当 0
+        let Some(v) = http_get_json(&format!("{base}/api/yuyi/unread")) else { continue };
+        let Ok(snap) = serde_json::from_value::<UnreadSnapshot>(v) else { continue };
+
+        let mut changed = false;
+        for b in &snap.bindings {
+            let Some(unread) = b.unread else { continue };
+            let key = b.name.clone();
+            let prev = baseline.get(&key).copied().unwrap_or(-1);
+            if prev < 0 {
+                baseline.insert(key, unread);
+                continue;
+            }
+            if unread > prev {
+                changed = true;
+            }
+            baseline.insert(key, unread);
+        }
+        if !changed {
+            continue;
+        }
+
+        // 2) 计数上涨：取一次完整收件箱做差集（fetch 标记下发——弹过≈设备已收，
+        //    与 web UI 读取语义一致；清读仍由用户已读动作驱动）
+        let Some(v) = http_get_json(&format!("{base}/api/yuyi/inbox")) else { continue };
+        let Ok(inbox) = serde_json::from_value::<InboxSnapshot>(v) else { continue };
+
+        let now_ms = now_millis();
+        let mut toasts: Vec<(String, String)> = Vec::new();
+        'outer: for binding in &inbox.bindings {
+            for e in &binding.entries {
+                let id = e.message.id.clone();
+                if id.is_empty() || seen_ids.contains(&id) {
+                    continue;
+                }
+                seen_ids.insert(id);
+                // 过期不弹：receivedAt 缺省退回 message.time
+                let received = e.received_at.or(e.message.time).unwrap_or(now_ms);
+                if now_ms.saturating_sub(received) > STALE_MS {
+                    continue;
+                }
+                let sender = e
+                    .message
+                    .from
+                    .as_ref()
+                    .map(|f| {
+                        if f.name.is_empty() {
+                            f.device.clone()
+                        } else {
+                            f.name.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "御驿".to_string());
+                // 每发送人去重窗口
+                if let Some(t) = last_toast_at.get(&sender) {
+                    if now_ms.saturating_sub(*t) < SENDER_DEDUPE_MS {
+                        continue;
+                    }
+                }
+                if toasts.len() >= MAX_TOASTS_PER_POLL {
+                    break 'outer;
+                }
+                last_toast_at.insert(sender.clone(), now_ms);
+                let body = if e.message.text.chars().count() > 120 {
+                    let cut: String = e.message.text.chars().take(120).collect();
+                    format!("{cut}…")
+                } else {
+                    e.message.text.clone()
+                };
+                toasts.push((sender, body));
+            }
+        }
+        // 防无界膨胀：粗粒度裁剪（保留最近一半）
+        if seen_ids.len() > 4096 {
+            seen_ids = seen_ids.into_iter().take(2048).collect();
+        }
+
+        // 3) 弹系统通知
+        for (sender, body) in toasts {
+            use tauri_plugin_notification::NotificationExt;
+            let _ = app
+                .notification()
+                .builder()
+                .title(format!("御驿 · {sender}"))
+                .body(body)
+                .show();
+        }
+    }
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// daemon 基地址（复用壳配置的 host:port）
+fn daemon_base_url() -> Option<String> {
+    let cfg = read_daemon_config()?;
+    Some(format!("http://{}:{}", cfg.host(), cfg.port()))
 }

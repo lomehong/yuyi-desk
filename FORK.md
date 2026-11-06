@@ -116,6 +116,22 @@ mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
 
 御驿主仓库：`E:\Development\Code\nodejs\Yuyi`（Hub / 御符对接 / 协议层不动）。
 
+## Reason 互补研究落地（2026-11-07，Yuyi 主仓 00e4da7/7f88d11 + 本仓 7640e31/2d65f4f7b）
+
+17 项可借鉴方向系统性落地（研究报告四方向深研+独立评审+修订）：
+- **P0 全实现**：桌面通知弹屏桥（Tauri notification+轮询 /api/yuyi/unread 计数
+  探针+端侧三重抑制：每发送人 10min 去重/10min 过期不弹/单轮≤3）；敏感凭证
+  出站剥除三面（Hub 形态/设备端值/本地短路，fail-closed，单测 8 例）。
+- **P1 代码 8 项**：授权失败分级（seen-actions 曾持有集）/send 管线审计+
+  行为锁定+重注册提示/收件箱一天遗忘（24h，豁免三类+墓碑审计）/outbox
+  查询限速+task 索引/peers 会话目录（activity 字段级 opt-in，busy/doing/repo）/
+  链接即邀请（hub/invite.ts 一次性+防爆破三件套+管理台端点）/一键安装脚本
+  （install-agent.sh/.ps1）。
+- **P1 文档 2 项 + P2 五项**：docs/roadmap/ 七篇（定位立场/A2A 路线/iroh/
+  凭证离线可验 spec/MCP 拆包 spec/自更新安全/投递词汇统一）。
+- **P1-5 审批签批**：方案 B 设计 spec 已定案（服务端见证+进程白名单+文本清洗+
+  审计链），**代码实现列下一批**（协议帧+hub/approval.ts+设备浮窗+adapters 等待层）。
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原

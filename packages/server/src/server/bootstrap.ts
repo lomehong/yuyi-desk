@@ -1517,6 +1517,14 @@ export async function createPaseoDaemon(
     }
     res.json(await yuyiService.inboxSnapshot());
   });
+  // P0-1 桌面通知轮询：只读未读计数（不取内容、不标记下发），503 语义同其余 yuyi API
+  app.get("/api/yuyi/unread", async (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    res.json(await yuyiService.unreadSnapshot());
+  });
   app.post("/api/yuyi/inbox/ack", (req, res) => {
     const body = req.body as { binding?: string; ids?: unknown };
     const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];

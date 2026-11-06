@@ -71,6 +71,20 @@ export const YuyiConfigSchema = z.object({
   principal: z.enum(["device", "agent"]).optional(),
   /** 是否向被管理的 agent 注入 YUYI_* 环境变量；缺省 true */
   injectEnv: z.boolean().optional(),
+  /**
+   * P1-7 会话目录可见性（借鉴 Reason 团队目录；字段级最小可见，逐字段 opt-in）：
+   *   busy  缺省 true——忙闲（lifecycle running 视为忙）
+   *   doing 缺省 false——Agent 标题摘要（可能含任务语义，显式开启才上报）
+   *   repo  缺省 "off"——"name" 仅仓库名（cwd 目录名）；"name-branch" 含分支
+   *         （分支需 git 探测，v1 未实现，配置了也只回报 repo 名）
+   */
+  activity: z
+    .object({
+      busy: z.boolean().optional(),
+      doing: z.boolean().optional(),
+      repo: z.enum(["off", "name", "name-branch"]).optional(),
+    })
+    .optional(),
   agents: z.array(YuyiAgentMappingSchema),
 });
 
@@ -87,6 +101,12 @@ export interface ResolvedYuyiConfig {
   agentKind: string;
   injectEnv: boolean;
   principal: "device" | "agent";
+  /** P1-7 字段级可见性（解析后带缺省） */
+  activity: {
+    busy: boolean;
+    doing: boolean;
+    repo: "off" | "name" | "name-branch";
+  };
   agents: YuyiAgentMapping[];
 }
 
@@ -135,6 +155,11 @@ export function resolveYuyiConfig(config: YuyiConfig): ResolvedYuyiConfig {
         : config.token?.trim() || config.agents[0]?.token,
     agentKind: config.agentKind?.trim() || "yuyi-desk",
     injectEnv: config.injectEnv !== false,
+    activity: {
+      busy: config.activity?.busy !== false,
+      doing: config.activity?.doing === true,
+      repo: config.activity?.repo ?? "off",
+    },
     principal,
     agents: config.agents,
   };

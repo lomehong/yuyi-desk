@@ -413,6 +413,8 @@ export class YuyiService {
       return;
     }
     try {
+      const config = this.cachedConfig;
+      const visibility = config?.activity ?? { busy: false, doing: false, repo: "off" as const };
       const gateAgents = [...this.byPaseo.values()].map((b) => ({
         agentId: b.agentId,
         name: b.name,
@@ -420,6 +422,8 @@ export class YuyiService {
         ...(this.terminatedAgents.has(b.agentId)
           ? { terminated: this.terminatedAgents.get(b.agentId) }
           : {}),
+        // P1-7 会话目录：字段级 opt-in——只在配置显式允许时上报对应字段
+        ...this.activityFieldsFor(b.paseoAgentId, visibility),
       }));
       this.link.rawRequest({
         type: "device/state",
@@ -431,6 +435,42 @@ export class YuyiService {
     } catch (error) {
       this.logger.debug({ err: String(error) }, "device/state report skipped");
     }
+  }
+
+  /**
+   * P1-7 会话目录字段（按 yuyi.activity 可见性过滤）：
+   * busy = lifecycle running 或 hasInFlightRun；doing = Agent 标题；
+   * repo = 工作目录名（name-branch 的分支探测 v1 未实现，只回报目录名）。
+   * 全部 off 时不产生字段（帧不膨胀）。
+   */
+  private activityFieldsFor(
+    paseoAgentId: string,
+    visibility: { busy: boolean; doing: boolean; repo: "off" | "name" | "name-branch" },
+  ): Record<string, unknown> {
+    if (!visibility.busy && !visibility.doing && visibility.repo === "off") {
+      return {};
+    }
+    const activity: Record<string, unknown> = {};
+    try {
+      const agent = this.opts.agentManager.getAgent(paseoAgentId);
+      if (!agent) return {};
+      if (visibility.busy) {
+        activity.busy =
+          agent.lifecycle === "running" || this.opts.agentManager.hasInFlightRun(paseoAgentId);
+      }
+      if (visibility.doing && agent.config?.title) {
+        activity.doing = String(agent.config.title).slice(0, 80);
+      }
+      if (visibility.repo !== "off" && agent.cwd) {
+        // 目录名即仓库展示名（与 paseo 工作区命名一致）；不含盘符路径
+        const parts = String(agent.cwd).replace(/[\\/]+$/, "").split(/[\\/]/);
+        const repoName = parts[parts.length - 1];
+        if (repoName) activity.repo = repoName;
+      }
+    } catch {
+      // 活动字段是辅助信息——取不到就不带，绝不影响 state 上报本体
+    }
+    return Object.keys(activity).length > 0 ? { activity } : {};
   }
 
   /** AgentManager.buildLaunchContext 注入 YUYI_* env（未启用/未绑定返回 null） */

@@ -184,6 +184,24 @@ Owner 直发通道全链路实现（设计三轮定稿：Owner 本人是发送�
   mail 降级→daemon 归组→会话渲染 loopClosed=true）+ Tauri 实机走查
   （Agents 页签/会话页/composer 发送/降级提示/旁观区块/未读徽标/i18n）。
 
+### UI/UX 二轮重构：顶层模式化（2026-11-07，737ac1b38）
+
+用户定稿三点（命名「工作台/微信」；在线目录只在发起会话时弹出；旁观会话
+默认折叠）：sidebar 的 Agents 页签整个移除，改为**顶层模式**：
+
+- 顶栏（YuyiShellTopbar 御驿 logo 后）ModeSwitch 分段切换（复用项目
+  SegmentedControl，符合设计系统 no-raw-pressable 规范）；
+- 顶层模式持久化（wechat-mode-store + localStorage），启动重定向回上次模式；
+- 微信模式：LeftSidebar 整体替换为 WeChatSidebar（搜索/＋发起/最近会话/
+  旁观折叠分组），工作台菜单完全消失；主区 /h/:serverId/wechat 渲染
+  WeChatMain（选中会话复用 AgentChatScreen 或品牌欢迎页）；selectedPeer
+  进 store，左栏↔主区共享、切模式保留；
+- AgentChatScreen 改 props 化；agents-screen 三段式页签与 agents 路由删除。
+
+实机走查（CDP）：切换器位置/微信模式工作台菜单消失/左栏列表/会话点开/
+切回工作台全部通过；release exe 需 touch lib.rs 强制重嵌（web-dist 不在
+cargo 增量指纹内——以后每次前端改动都要 touch 再 cargo build --release）。
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原

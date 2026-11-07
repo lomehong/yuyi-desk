@@ -43,6 +43,12 @@ function deliveryStateText(ack: { ok: boolean; detail?: string }): string {
   return mailFallback ? "✓·已转收件箱" : "✓";
 }
 
+function resolvePeerKind(kind?: string): "owner" | "agent" | "observe" {
+  if (kind === "owner") return "owner";
+  if (kind === "observe") return "observe";
+  return "agent";
+}
+
 function fmtTime(at: number): string {
   const d = new Date(at);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -69,7 +75,8 @@ export function AgentChatScreen(): ReactElement {
   const inputRef = useRef<EditingTextInputHandle>(null);
 
   const peerTitle = title ?? peerKey;
-  const peerKind: "owner" | "agent" = kind === "owner" ? "owner" : "agent";
+  const peerKind = resolvePeerKind(kind);
+  const readOnly = peerKind === "observe";
 
   const refresh = useCallback(async () => {
     if (!client || !peerKey) return;
@@ -122,6 +129,7 @@ export function AgentChatScreen(): ReactElement {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {peerTitle}
           {peerKind === "owner" ? <Text style={styles.ownerTag}> · Owner</Text> : null}
+          {readOnly ? <Text style={styles.ownerTag}> · {t("agentChat.observeTag")}</Text> : null}
         </Text>
         <ToolbarButton label={t("yuyi.refresh")} onPress={refresh}>
           <ThemedRefreshCw size={15} uniProps={MUTED_ICON} />
@@ -141,19 +149,23 @@ export function AgentChatScreen(): ReactElement {
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
-      <View style={styles.composer}>
-        <EditingTextInput
-          ref={inputRef}
-          style={styles.input}
-          initialValue=""
-          onChangeText={setDraft}
-          placeholder={t("agentChat.inputPlaceholder")}
-          multiline
-        />
-        <ToolbarButton label={t("agentChat.send")} onPress={send} disabled={!canSend} round>
-          <ThemedSend size={18} uniProps={SEND_ICON} />
-        </ToolbarButton>
-      </View>
+      {readOnly ? (
+        <Text style={styles.readOnlyHint}>{t("agentChat.readOnly")}</Text>
+      ) : (
+        <View style={styles.composer}>
+          <EditingTextInput
+            ref={inputRef}
+            style={styles.input}
+            initialValue=""
+            onChangeText={setDraft}
+            placeholder={t("agentChat.inputPlaceholder")}
+            multiline
+          />
+          <ToolbarButton label={t("agentChat.send")} onPress={send} disabled={!canSend} round>
+            <ThemedSend size={18} uniProps={SEND_ICON} />
+          </ToolbarButton>
+        </View>
+      )}
     </View>
   );
 }
@@ -221,6 +233,14 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[8],
   },
   error: { color: theme.colors.palette.red[500], textAlign: "center", padding: theme.spacing[2] },
+  readOnlyHint: {
+    color: theme.colors.foregroundExtraMuted,
+    textAlign: "center",
+    padding: theme.spacing[3],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+    fontSize: 12,
+  },
   bubbleRow: { flexDirection: "row", justifyContent: "flex-end", maxWidth: "100%" },
   bubbleRowMine: { justifyContent: "flex-end" },
   bubbleRowTheirs: { justifyContent: "flex-start" },

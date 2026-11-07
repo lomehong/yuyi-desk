@@ -3,6 +3,10 @@ import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
   agentChat: {
+    observe: "Agent 会话（旁观）",
+    readOnly: "旁观模式：只读，Agent 间通信",
+    observeTag: "旁观",
+
     title: "Agents",
     recent: "最近会话",
     directory: "在线目录",

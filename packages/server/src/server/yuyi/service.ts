@@ -219,6 +219,7 @@ export class YuyiService {
         ? { expectReply: true, taskId: `task_yuyidesk_${Date.now().toString(36)}` }
         : {}),
     };
+    void this.observeAgentTraffic(binding, message, "out");
     return this.link.sendFromBinding(binding, message);
   }
 
@@ -976,10 +977,69 @@ export class YuyiService {
   }
 
   /** deliver 到达：注入 prompt；expectReply 时异步等待完成并自动回信 */
+  /**
+   * Agent 会话旁观（M1.5，设计 §4/§5）：本机 Agent 经手的 agent↔agent 流量按
+   * 对端归组进会话列表，只读呈现——Owner 可见 Agent 间的协作，不干预。
+   * 挂点：deliverToAgent（入向）与 sendFromBinding 调用侧（出向）。
+   */
+  /** 旁观对端快照：入向=发送方 / 出向=收件目标（canonical agentId:name / 裸名） */
+  private observePeerOf(
+    message: YuyiMessage,
+    dir: "in" | "out",
+  ): { key: string; title: string; from: Record<string, unknown> } {
+    if (dir === "out") {
+      const target = message.to?.target ?? "";
+      return { key: this.peerKeyOfTarget(target), title: target || "未知", from: {} };
+    }
+    const from = message.from ?? {};
+    return {
+      key: this.peerKeyOfFrom(from),
+      title: from.ownerUsername || from.name || from.device || "未知",
+      from: from as unknown as Record<string, unknown>,
+    };
+  }
+
+  private async observeAgentTraffic(
+    binding: YuyiBinding,
+    message: YuyiMessage,
+    dir: "in" | "out",
+  ): Promise<void> {
+    if (!this.chats) return;
+    try {
+      const other = this.observePeerOf(message, dir);
+      await this.chats.append(
+        {
+          key: `observe:${binding.agentId}:${other.key}`,
+          title: `${binding.name} ↔ ${other.title}`,
+          kind: "observe",
+          role: message.from?.role ?? "agent",
+        },
+        {
+          id: randomUUID(),
+          at: message.time ?? Date.now(),
+          dir,
+          text: message.text ?? "",
+          from: {
+            ...(dir === "in" ? other.from : { name: binding.name, agentId: binding.agentId }),
+          },
+          hubId: message.id,
+        },
+      );
+    } catch {
+      // 旁观是尽力而为：不影响投递/发送主流程
+    }
+  }
+
+  /** 由 to.target 推旁观对端 key（canonical/裸名统一小写归组） */
+  private peerKeyOfTarget(target: string): string {
+    return target.trim().toLowerCase() || "unknown";
+  }
+
   private async deliverToAgent(
     binding: YuyiBinding,
     message: YuyiMessage,
   ): Promise<{ ok: boolean; detail?: string }> {
+    void this.observeAgentTraffic(binding, message, "in");
     // 管理台屏蔽（block）的身份：拒绝自动注入——回 wakeup_failed 让 Hub 入
     // 收件箱（消息不丢），release 后可从收件箱补看
     if (this.isBlocked(binding.agentId)) {
@@ -1069,6 +1129,7 @@ export class YuyiService {
         ...(message.traceId ? { traceId: message.traceId } : {}),
         ...(typeof message.hopCount === "number" ? { hopCount: message.hopCount } : {}),
       };
+      void this.observeAgentTraffic(binding, reply, "out");
       const ack = await this.link.sendFromBinding(binding, reply);
       this.logger.info(
         { ok: ack.ok, detail: ack.detail },

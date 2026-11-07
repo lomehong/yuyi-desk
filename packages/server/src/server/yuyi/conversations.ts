@@ -19,7 +19,7 @@ export interface PeerRef {
   /** 展示名（自报 name 或 ownerUsername） */
   title: string;
   /** 对方主体类型：owner=对方 Owner 本人 / agent=对方 Agent */
-  kind: "owner" | "agent";
+  kind: "owner" | "agent" | "observe";
   /** from.role 原样（avatar/worker/coder/owner…，端侧徽章用） */
   role?: string;
 }
@@ -32,7 +32,13 @@ export interface ChatMessage {
   dir: "out" | "in";
   text: string;
   /** 入向：发送方快照（渲染气泡头像/名字）；出向缺省=我 */
-  from?: { name?: string; device?: string; role?: string; agentId?: string; ownerUsername?: string };
+  from?: {
+    name?: string;
+    device?: string;
+    role?: string;
+    agentId?: string;
+    ownerUsername?: string;
+  };
   /** 关联 Hub 消息 id（out=发送 id，in=inbox 条目 id；本地补偿消息可缺省） */
   hubId?: string;
   /** 投递回执快照（out 向：send ack 的 ok/detail；降级 mail 时注明） */
@@ -56,7 +62,10 @@ export class ConversationStore {
   private indexDirty = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(homeDir: string, private readonly log: (msg: string) => void) {
+  constructor(
+    homeDir: string,
+    private readonly log: (msg: string) => void,
+  ) {
     this.dir = join(homeDir, "conversations");
     void mkdir(this.dir, { recursive: true }).catch(() => {});
   }
@@ -121,7 +130,11 @@ export class ConversationStore {
     } catch {
       /* 新会话 */
     }
-    await writeFile(file, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${line}\n`, "utf8");
+    await writeFile(
+      file,
+      `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${line}\n`,
+      "utf8",
+    );
     const idx = await this.loadIndex();
     const prev = idx.get(peer.key);
     idx.set(peer.key, {

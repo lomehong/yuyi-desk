@@ -67,7 +67,7 @@ export interface YuyiInbox {
 
 /** 「Agent 微信」M1：会话条目（daemon conversations.json 索引） */
 export interface YuyiChatEntry {
-  peer: { key: string; title: string; kind: "owner" | "agent"; role?: string };
+  peer: { key: string; title: string; kind: "owner" | "agent" | "observe"; role?: string };
   lastAt: number;
   lastText: string;
   unread: number;

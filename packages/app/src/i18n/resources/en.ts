@@ -1,5 +1,9 @@
 export const en = {
   agentChat: {
+    observe: "Agent chats (observed)",
+    readOnly: "Observing: read-only agent-to-agent traffic",
+    observeTag: "observing",
+
     title: "Agents",
     recent: "Recent",
     directory: "Online directory",

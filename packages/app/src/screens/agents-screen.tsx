@@ -10,7 +10,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { BadgeCheck, Bot, Circle, MessageSquare } from "lucide-react-native";
+import { BadgeCheck, Bot, Circle, Eye, MessageSquare } from "lucide-react-native";
 
 import { MenuHeader } from "@/components/headers/menu-header";
 import { PressHighlight } from "@/components/ui/press-highlight";
@@ -23,6 +23,7 @@ const ThemedBadgeCheck = withUnistyles(BadgeCheck);
 const ThemedBot = withUnistyles(Bot);
 const ThemedCircle = withUnistyles(Circle);
 const ThemedMessageSquare = withUnistyles(MessageSquare);
+const ThemedEye = withUnistyles(Eye);
 
 const AMBER_ICON = (theme: Theme) => ({ color: theme.colors.palette.amber[500] });
 const MUTED_ICON = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
@@ -34,7 +35,7 @@ const GREEN_DOT_ICON = (theme: Theme) => ({
 interface PeerRow {
   key: string;
   title: string;
-  kind: "owner" | "agent" | "local";
+  kind: "owner" | "agent" | "local" | "observe";
   role?: string;
   subtitle?: string;
   online?: boolean;
@@ -116,16 +117,35 @@ export function AgentsScreen(): ReactElement {
 
   const convRows = useMemo<PeerRow[]>(
     () =>
-      conversations.map((c) => ({
-        key: c.peer.key,
-        title: c.peer.title,
-        kind: c.peer.kind,
-        role: c.peer.role,
-        subtitle: c.lastText,
-        unread: c.unread,
-        lastAt: c.lastAt,
-        fromConversations: true,
-      })),
+      conversations
+        .filter((c) => c.peer.kind !== "observe")
+        .map((c) => ({
+          key: c.peer.key,
+          title: c.peer.title,
+          kind: c.peer.kind,
+          role: c.peer.role,
+          subtitle: c.lastText,
+          unread: c.unread,
+          lastAt: c.lastAt,
+          fromConversations: true,
+        })),
+    [conversations],
+  );
+
+  // M1.5 Agent 会话旁观（设计 §5）：agent↔agent 流量只读呈现，独立分组
+  const observeRows = useMemo<PeerRow[]>(
+    () =>
+      conversations
+        .filter((c) => c.peer.kind === "observe")
+        .map((c) => ({
+          key: c.peer.key,
+          title: c.peer.title,
+          kind: "observe" as const,
+          subtitle: c.lastText,
+          unread: c.unread,
+          lastAt: c.lastAt,
+          fromConversations: true,
+        })),
     [conversations],
   );
 
@@ -172,6 +192,15 @@ export function AgentsScreen(): ReactElement {
           directoryRows.map((r) => <PeerRowItem key={`d-${r.key}`} row={r} onPress={openChat} />)
         )}
 
+        {observeRows.length > 0 ? (
+          <>
+            <SectionTitle label={t("agentChat.observe")} />
+            {observeRows.map((r) => (
+              <PeerRowItem key={r.key} row={r} onPress={openChat} showUnread showLast />
+            ))}
+          </>
+        ) : null}
+
         <SectionTitle label={t("agentChat.thisDevice")} />
         {localRows.map((r) => (
           <PeerRowItem key={r.key} row={r} onPress={openChat} muted />
@@ -190,6 +219,7 @@ function SectionTitle({ label }: { label: string }): ReactElement {
 function RowAvatar({ kind }: { kind: PeerRow["kind"] }): ReactElement {
   if (kind === "owner") return <ThemedBadgeCheck size={16} uniProps={AMBER_ICON} />;
   if (kind === "local") return <ThemedCircle size={10} uniProps={GREEN_DOT_ICON} />;
+  if (kind === "observe") return <ThemedEye size={14} uniProps={MUTED_ICON} />;
   return <ThemedBot size={16} uniProps={MUTED_ICON} />;
 }
 

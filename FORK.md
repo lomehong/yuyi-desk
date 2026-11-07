@@ -164,6 +164,26 @@ Owner 直发通道全链路实现（设计三轮定稿：Owner 本人是发送�
   ⚠ 生产 Hub（hub.qianji.io）需部署 5fdde7e 后 daemon 真实回路可用——
   部署命令：`git pull && sudo bash deploy/smart-deploy.sh --force-restart`。
 
+### M1 批次4 续 + M1.5（同日，03976bf→a44c0d4 对应提交）
+
+- **回程链路三件套（§2.4 回信去向落地，Hub 03976bf）**：E2E 实测发现
+  Owner 直发的回信被拒（「无该收件人的收件箱记录」）——① Owner 直发时
+  register owner 收件人（owner:<uid>:owner@<device>，幂等 upsert）；
+  ② parseAgentScopedTarget 加 owner: 分支（uid 含冒号按最后一个冒号切分）；
+  ③ 设备连接 inbox/fetch 放行 owner recipient（归属=ownerUserId 匹配设备
+  凭证，先于 agentSet 空集检查——纯 Owner 设备也收得到自己的信）。
+- **daemon（cdb1962a6）**：owner 收件人纳入 15s 收件箱轮询（welcome
+  hubOwnerUserId 门控）；peerKeyOfFrom 合成 canonical owner:<uid>:owner@<device>
+  （peerKey 可直接复发）；会话页投递状态三态明示（✗ / ✓·已转收件箱 / ✓）；
+  i18n 修复（sidebar.sections.agents 曾误插进另一个 sections 块，实机走查发现）。
+- **M1.5 Agent 会话旁观（02856c46f，设计 §4/§5）**：本机 Agent 经手的
+  agent↔agent 流量（deliver 入向 + sendFromBinding 出向挂点）按对端归组
+  observe:<agent>:<peer> 会话（best-effort）；App「Agent 会话（旁观）」
+  独立分组 + 只读会话页（隐藏 composer，旁观徽标）；i18n 9 语言。
+- **验证**：本地源 Hub 全链 E2E（Owner send→远端收 wire role=owner→回信
+  mail 降级→daemon 归组→会话渲染 loopClosed=true）+ Tauri 实机走查
+  （Agents 页签/会话页/composer 发送/降级提示/旁观区块/未读徽标/i18n）。
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原

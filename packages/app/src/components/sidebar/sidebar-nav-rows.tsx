@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { CalendarClock, History, Plus, Radio, Search } from "lucide-react-native";
+import { Users, CalendarClock, History, Plus, Radio, Search } from "lucide-react-native";
 import { memo, useCallback, useMemo, useRef, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { View, type StyleProp, type ViewStyle } from "react-native";
@@ -213,12 +213,38 @@ function SidebarYuyiRow({ onBeforeNavigate }: SidebarNavRowProps) {
   );
 }
 
+// 「Agent 微信」M1：Agents（通讯录+会话）。host 域路由同 yuyi 行。
+function SidebarAgentsRow({ onBeforeNavigate }: SidebarNavRowProps) {
+  const { t } = useTranslation();
+  const pathname = usePathname();
+  const hosts = useHosts();
+  const handlePress = useCallback(() => {
+    const match = pathname.match(/^\/h\/([^/]+)/);
+    const serverId = match?.[1] ?? hosts[0]?.serverId;
+    if (!serverId) return;
+    onBeforeNavigate?.();
+    router.push(`/h/${serverId}/agents` as never);
+  }, [hosts, onBeforeNavigate, pathname]);
+
+  return (
+    <SidebarHeaderRow
+      icon={Users}
+      label={t(builtinSidebarNavLabelKey("agents"))}
+      onPress={handlePress}
+      isActive={pathname.includes("/agents")}
+      testID="sidebar-agents"
+      variant="compact"
+    />
+  );
+}
+
 const BUILTIN_ROWS: Record<BuiltinSidebarNavId, ComponentType<SidebarNavRowProps>> = {
   "new-workspace": SidebarNewWorkspaceRow,
   history: SidebarHistoryRow,
   search: SidebarSearchRow,
   schedules: SidebarSchedulesRow,
   yuyi: SidebarYuyiRow,
+  agents: SidebarAgentsRow,
 };
 
 const styles = StyleSheet.create({

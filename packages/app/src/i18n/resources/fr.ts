@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const fr: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1092,6 +1105,7 @@ export const fr: TranslationResources = {
           runningAccessible: "Vérifications en cours",
         },
         sections: {
+          agents: "Agents",
           checks: "Vérifications",
           pipeline: "Pipeline",
           reviews: "Revues",
@@ -1708,7 +1722,7 @@ export const fr: TranslationResources = {
     },
   },
   onboarding: {
-    title: "Bienvenue dans Paseo",
+    title: "Bienvenue dans Yuyi Desk",
     subtitle: "Connectez votre ordinateur pour commencer",
     actions: {
       settings: "Paramètres",
@@ -1816,7 +1830,7 @@ export const fr: TranslationResources = {
     },
     direct: {
       title: "Connexion directe",
-      helper: "Saisissez l’adresse d’un serveur Paseo.",
+      helper: "Saisissez l’adresse d’un serveur Yuyi Desk.",
       fields: {
         host: "Hôte",
         port: "Port",
@@ -2856,6 +2870,21 @@ export const fr: TranslationResources = {
       },
       workspaces: {
         unavailable: "Connectez-vous à cet hôte pour gérer les espaces de travail",
+        autoArchiveMerged: {
+          title: "Archiver les espaces de travail dont la PR est fusionnée",
+          hint: "Archive automatiquement les espaces de travail sans modifications non validées après la fusion de leur pull request.",
+          accessibilityLabel: "Archiver les espaces de travail dont la PR est fusionnée",
+          errorTitle: "Impossible de mettre à jour les espaces de travail",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "Agents de terminal",
+        enableHooks: {
+          title: "Activer les hooks des agents de terminal",
+          hint: "Recevez les notifications et les états des agents de terminal. Cela installe des hooks dans leurs fichiers de configuration.",
+          accessibilityLabel: "Activer les hooks des agents de terminal",
+          errorTitle: "Impossible de mettre à jour les hooks des agents de terminal",
+        },
       },
       terminalProfiles: {
         unavailable: "Connectez-vous à cet hôte pour gérer les profils de terminal",

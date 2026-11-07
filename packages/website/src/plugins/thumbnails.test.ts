@@ -113,13 +113,18 @@ function imageResponse(body: string, headers: Record<string, string> = {}) {
 // A typed fetch dependency, returning real Responses without patching the global fetch.
 function imageFetch(...responses: (Response | Error)[]) {
   const calls: { input: Parameters<typeof fetch>[0]; init: Parameters<typeof fetch>[1] }[] = [];
-  const fetchImage: typeof fetch = async (input, init) => {
+  // DOM lib ≥5.9 的 typeof fetch 新增 preconnect 成员；函数实现无法自带静态成员，
+  // 按类型断言收窄（同 packages/server opencode v2 runtime.ts 的 1297c1ab7 处理）
+  const fetchImage = (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
     calls.push({ input, init });
     const response = responses.shift();
     if (!response) throw new Error("Unexpected fetch");
     if (response instanceof Error) throw response;
     return response;
-  };
+  }) as typeof fetch;
   return { calls, fetchImage };
 }
 

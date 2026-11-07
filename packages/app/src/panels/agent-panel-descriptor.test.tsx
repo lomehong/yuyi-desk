@@ -57,12 +57,12 @@ describe("buildDraftPanelDescriptor", () => {
     });
 
     expect(idleDescriptor).toMatchObject({
-      label: "新建 Agent",
-      subtitle: "新建 Agent",
+      label: "新建智能体",
+      subtitle: "新建智能体",
     });
     expect(creatingDescriptor).toMatchObject({
-      label: "新建 Agent",
-      subtitle: "正在创建 Agent",
+      label: "新建智能体",
+      subtitle: "正在创建智能体",
     });
     await i18n.changeLanguage("en");
   });

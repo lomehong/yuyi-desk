@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const es: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1099,6 +1112,7 @@ export const es: TranslationResources = {
           runningAccessible: "Comprobaciones en curso",
         },
         sections: {
+          agents: "Agents",
           checks: "cheques",
           pipeline: "Pipeline",
           reviews: "Reseñas",
@@ -1710,7 +1724,7 @@ export const es: TranslationResources = {
     },
   },
   onboarding: {
-    title: "Bienvenido aPaseo",
+    title: "Bienvenido a Yuyi Desk",
     subtitle: "Conecte su computadora para comenzar",
     actions: {
       settings: "Ajustes",
@@ -1818,7 +1832,7 @@ export const es: TranslationResources = {
     },
     direct: {
       title: "Conexión directa",
-      helper: "Ingrese la dirección de un servidorPaseo.",
+      helper: "Ingrese la dirección de un servidor Yuyi Desk.",
       fields: {
         host: "Host",
         port: "Puerto",
@@ -2853,6 +2867,21 @@ export const es: TranslationResources = {
       },
       workspaces: {
         unavailable: "Connect to this host to manage workspaces",
+        autoArchiveMerged: {
+          title: "Archivar espacios de trabajo con PR fusionadas",
+          hint: "Archiva automáticamente los espacios de trabajo sin cambios pendientes cuando se fusiona su pull request.",
+          accessibilityLabel: "Archivar espacios de trabajo con PR fusionadas",
+          errorTitle: "No se pudieron actualizar los espacios de trabajo",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "Agentes de terminal",
+        enableHooks: {
+          title: "Activar hooks de agentes de terminal",
+          hint: "Recibe notificaciones y estados de los agentes de terminal. Esto instala hooks en sus archivos de configuración.",
+          accessibilityLabel: "Activar hooks de agentes de terminal",
+          errorTitle: "No se pudo actualizar los hooks de agentes de terminal",
+        },
       },
       terminalProfiles: {
         unavailable: "Connect to this host to manage terminal profiles",

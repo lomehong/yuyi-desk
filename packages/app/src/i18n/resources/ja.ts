@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1079,6 +1092,7 @@ export const ja: TranslationResources = {
           runningAccessible: "チェック実行中",
         },
         sections: {
+          agents: "Agents",
           checks: "チェック",
           pipeline: "パイプライン",
           reviews: "レビュー",
@@ -1681,7 +1695,7 @@ export const ja: TranslationResources = {
     },
   },
   onboarding: {
-    title: "Paseoへようこそ",
+    title: "Yuyi Deskへようこそ",
     subtitle: "始めるにはコンピューターに接続してください",
     actions: {
       settings: "設定",
@@ -1789,7 +1803,7 @@ export const ja: TranslationResources = {
     },
     direct: {
       title: "直接接続",
-      helper: "Paseoサーバーのアドレスを入力してください。",
+      helper: "Yuyi Deskサーバーのアドレスを入力してください。",
       fields: {
         host: "ホスト",
         port: "ポート",
@@ -2820,6 +2834,21 @@ export const ja: TranslationResources = {
       },
       workspaces: {
         unavailable: "ワークスペースを管理するにはこのホストに接続してください",
+        autoArchiveMerged: {
+          title: "マージ済みPRのワークスペースをアーカイブ",
+          hint: "プルリクエストがマージされた後、未コミットの変更がないワークスペースを自動的にアーカイブします。",
+          accessibilityLabel: "マージ済みPRのワークスペースをアーカイブ",
+          errorTitle: "ワークスペース設定を更新できません",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "ターミナルエージェント",
+        enableHooks: {
+          title: "ターミナルエージェントフックを有効化",
+          hint: "ターミナルエージェントの通知とステータスを受け取ります。エージェントの設定ファイルにフックをインストールします。",
+          accessibilityLabel: "ターミナルエージェントフックを有効化",
+          errorTitle: "ターミナルエージェントフック設定を更新できません",
+        },
       },
       terminalProfiles: {
         unavailable: "ターミナルプロファイルを管理するにはこのホストに接続してください",

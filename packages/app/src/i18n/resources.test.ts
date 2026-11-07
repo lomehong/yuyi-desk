@@ -247,7 +247,7 @@ describe("translation resources", () => {
     expect(ja.settings.providers.models.many).toBe("{{count}}つのモデル");
     expect(ptBR.settings.providers.models.many).toBe("{{count}} modelos");
     expect(ru.settings.providers.models.many).toBe("{{count}} моделей");
-    expect(zhCN.settings.providers.models.many).toBe("{{count}} 个 Model");
+    expect(zhCN.settings.providers.models.many).toBe("{{count}} 个模型");
   });
 
   it("preserves reviewed Korean status labels", () => {
@@ -465,7 +465,7 @@ describe("translation resources", () => {
   });
 
   it("includes onboarding and direct connection keys for the Batch 4E migration", () => {
-    expect(en.onboarding.title).toBe("Welcome to Paseo");
+    expect(en.onboarding.title).toBe("Welcome to Yuyi Desk");
     expect(en.onboarding.actions.settings).toBe("Settings");
     expect(en.pairing.direct.title).toBe("Direct connection");
     expect(en.pairing.direct.fields.host).toBe("Host");
@@ -840,5 +840,41 @@ describe("translation resources", () => {
     expect(en.startup.logs.loading).toBe("Loading daemon logs...");
     expect(en.startup.logs.unavailable).toBe("No daemon logs available.");
     expect(en.startup.logs.loadFailed).toBe("Unable to load daemon logs: {{message}}");
+  });
+
+  it("provides Chinese copy for terminal agent and workspace archive settings", () => {
+    expect(zhCN.settings.host.terminalAgents).toMatchObject({
+      sectionTitle: "终端智能体",
+      enableHooks: {
+        title: "启用终端智能体钩子",
+        accessibilityLabel: "启用终端智能体钩子",
+        errorTitle: "无法更新终端智能体钩子设置",
+      },
+    });
+    expect(zhCN.settings.host.workspaces.autoArchiveMerged).toMatchObject({
+      title: "归档已合并拉取请求的工作区",
+      accessibilityLabel: "归档已合并拉取请求的工作区",
+      errorTitle: "无法更新工作区设置",
+    });
+    expect(zhCN.settings.hostSections.agents).toBe("智能体");
+    expect(zhCN.shell.commandCenter.agents).toBe("智能体");
+  });
+
+  it("keeps terminal and workspace settings free of hardcoded English copy", () => {
+    const hostPage = readFileSync(join(appSourceRoot, "screens/settings/host-page.tsx"), "utf8");
+    for (const text of [
+      "Terminal agents",
+      "Enable terminal agent hooks",
+      "Archive merged PR workspaces",
+      "Unable to update workspaces",
+      "Unable to update terminal agent hooks",
+    ]) {
+      expect(hostPage).not.toContain(text);
+    }
+    const browserCard = readFileSync(
+      join(appSourceRoot, "screens/settings/browser-tools-card.tsx"),
+      "utf8",
+    );
+    expect(browserCard).not.toContain('accessibilityLabel="Enable browser tools"');
   });
 });

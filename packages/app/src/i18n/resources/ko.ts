@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ko: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1073,6 +1086,7 @@ export const ko: TranslationResources = {
           runningAccessible: "검사 진행 중",
         },
         sections: {
+          agents: "Agents",
           checks: "검사",
           pipeline: "파이프라인",
           reviews: "리뷰",
@@ -1674,7 +1688,7 @@ export const ko: TranslationResources = {
     },
   },
   onboarding: {
-    title: "Paseo에 오신 것을 환영합니다",
+    title: "Yuyi Desk에 오신 것을 환영합니다",
     subtitle: "시작하려면 컴퓨터를 연결하세요",
     actions: {
       settings: "설정",
@@ -1782,7 +1796,7 @@ export const ko: TranslationResources = {
     },
     direct: {
       title: "직접 연결",
-      helper: "Paseo 서버의 주소를 입력하세요.",
+      helper: "Yuyi Desk 서버의 주소를 입력하세요.",
       fields: {
         host: "호스트",
         port: "포트",
@@ -2808,6 +2822,21 @@ export const ko: TranslationResources = {
       },
       workspaces: {
         unavailable: "워크스페이스를 관리하려면 이 호스트에 연결하세요",
+        autoArchiveMerged: {
+          title: "병합된 PR 작업 공간 보관",
+          hint: "풀 리퀘스트가 병합되면 커밋되지 않은 변경 사항이 없는 작업 공간을 자동으로 보관합니다.",
+          accessibilityLabel: "병합된 PR 작업 공간 보관",
+          errorTitle: "작업 공간 설정을 업데이트할 수 없습니다",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "터미널 에이전트",
+        enableHooks: {
+          title: "터미널 에이전트 후크 활성화",
+          hint: "터미널 에이전트의 알림과 상태를 받습니다. 에이전트 구성 파일에 후크를 설치합니다.",
+          accessibilityLabel: "터미널 에이전트 후크 활성화",
+          errorTitle: "터미널 에이전트 후크 설정을 업데이트할 수 없습니다",
+        },
       },
       terminalProfiles: {
         unavailable: "터미널 프로필을 관리하려면 이 호스트에 연결하세요",

@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ru: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1083,6 +1096,7 @@ export const ru: TranslationResources = {
           runningAccessible: "Проверки выполняются",
         },
         sections: {
+          agents: "Agents",
           checks: "Проверки",
           pipeline: "Пайплайн",
           reviews: "Ревью",
@@ -1693,7 +1707,7 @@ export const ru: TranslationResources = {
     },
   },
   onboarding: {
-    title: "Добро пожаловать в Paseo",
+    title: "Добро пожаловать в Yuyi Desk",
     subtitle: "Подключите компьютер, чтобы начать",
     actions: {
       settings: "Настройки",
@@ -1801,7 +1815,7 @@ export const ru: TranslationResources = {
     },
     direct: {
       title: "Прямое подключение",
-      helper: "Введите адрес сервера Paseo.",
+      helper: "Введите адрес сервера Yuyi Desk.",
       fields: {
         host: "Хост",
         port: "Порт",
@@ -2845,6 +2859,21 @@ export const ru: TranslationResources = {
       },
       workspaces: {
         unavailable: "Подключитесь к этому хосту, чтобы управлять рабочими пространствами",
+        autoArchiveMerged: {
+          title: "Архивировать рабочие области с объединёнными PR",
+          hint: "Автоматически архивировать рабочие области без незафиксированных изменений после объединения pull request.",
+          accessibilityLabel: "Архивировать рабочие области с объединёнными PR",
+          errorTitle: "Не удалось обновить настройки рабочих областей",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "Терминальные агенты",
+        enableHooks: {
+          title: "Включить хуки терминальных агентов",
+          hint: "Получайте уведомления и статус терминальных агентов. Хуки будут установлены в их файлы конфигурации.",
+          accessibilityLabel: "Включить хуки терминальных агентов",
+          errorTitle: "Не удалось обновить настройки хуков терминальных агентов",
+        },
       },
       terminalProfiles: {
         unavailable: "Подключитесь к этому хосту, чтобы управлять профилями терминала",

@@ -1,4 +1,17 @@
 export const en = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1074,6 +1087,7 @@ export const en = {
           runningAccessible: "Checks running",
         },
         sections: {
+          agents: "Agents",
           checks: "Checks",
           pipeline: "Pipeline",
           reviews: "Reviews",
@@ -1689,7 +1703,7 @@ export const en = {
     },
   },
   onboarding: {
-    title: "Welcome to Paseo",
+    title: "Welcome to Yuyi Desk",
     subtitle: "Connect your computer to get started",
     actions: {
       settings: "Settings",
@@ -1797,7 +1811,7 @@ export const en = {
     },
     direct: {
       title: "Direct connection",
-      helper: "Enter the address of a Paseo server.",
+      helper: "Enter the address of a Yuyi Desk server.",
       fields: {
         host: "Host",
         port: "Port",
@@ -2923,6 +2937,21 @@ export const en = {
       },
       workspaces: {
         unavailable: "Connect to this host to manage workspaces",
+        autoArchiveMerged: {
+          title: "Archive merged PR workspaces",
+          hint: "Automatically archive clean Yuyi Desk workspaces after their pull request is merged",
+          accessibilityLabel: "Archive merged PR workspaces",
+          errorTitle: "Unable to update workspaces",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "Terminal agents",
+        enableHooks: {
+          title: "Enable terminal agent hooks",
+          hint: "Get notifications and status from terminal agents. This installs hooks in your agent config files.",
+          accessibilityLabel: "Enable terminal agent hooks",
+          errorTitle: "Unable to update terminal agent hooks",
+        },
       },
       terminalProfiles: {
         unavailable: "Connect to this host to manage terminal profiles",

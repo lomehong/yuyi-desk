@@ -2,6 +2,19 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ar: TranslationResources = {
+  agentChat: {
+    title: "Agents",
+    recent: "Recent",
+    directory: "Online directory",
+    thisDevice: "This device",
+    noConversations: "No conversations yet — pick an agent from the directory",
+    noDirectory: "No online agents (offline ones remain reachable from Recent)",
+    localDevice: "Local (dogfood loop)",
+    emptyConversation: "Start the conversation — messages are sent as you, the Owner",
+    inputPlaceholder: "Message as you (Owner)…",
+    send: "Send",
+  },
+
   yuyi: {
     title: "Yuyi",
     tabStatus: "Status",
@@ -1066,6 +1079,7 @@ export const ar: TranslationResources = {
           runningAccessible: "الفحوصات قيد التشغيل",
         },
         sections: {
+          agents: "Agents",
           checks: "الشيكات",
           pipeline: "خط المعالجة",
           reviews: "التعليقات",
@@ -1664,7 +1678,7 @@ export const ar: TranslationResources = {
     },
   },
   onboarding: {
-    title: "مرحبا بكم في Paseo",
+    title: "مرحبا بكم في Yuyi Desk",
     subtitle: "قم بتوصيل جهاز الكمبيوتر الخاص بك للبدء",
     actions: {
       settings: "إعدادات",
@@ -1772,7 +1786,7 @@ export const ar: TranslationResources = {
     },
     direct: {
       title: "اتصال مباشر",
-      helper: "أدخل عنوان خادم Paseo.",
+      helper: "أدخل عنوان خادم Yuyi Desk.",
       fields: {
         host: "Host",
         port: "ميناء",
@@ -2831,6 +2845,21 @@ export const ar: TranslationResources = {
       },
       workspaces: {
         unavailable: "Connect to this host to manage workspaces",
+        autoArchiveMerged: {
+          title: "أرشفة مساحات العمل بعد دمج طلبات السحب",
+          hint: "أرشفة مساحات العمل التي لا تحتوي على تغييرات غير مثبتة تلقائيًا بعد دمج طلب السحب.",
+          accessibilityLabel: "أرشفة مساحات العمل بعد دمج طلبات السحب",
+          errorTitle: "تعذر تحديث إعدادات مساحات العمل",
+        },
+      },
+      terminalAgents: {
+        sectionTitle: "وكلاء الطرفية",
+        enableHooks: {
+          title: "تمكين خطافات وكلاء الطرفية",
+          hint: "احصل على الإشعارات والحالة من وكلاء الطرفية. يؤدي هذا إلى تثبيت الخطافات في ملفات إعدادات الوكيل.",
+          accessibilityLabel: "تمكين خطافات وكلاء الطرفية",
+          errorTitle: "تعذر تحديث إعدادات خطافات وكلاء الطرفية",
+        },
       },
       terminalProfiles: {
         unavailable: "Connect to this host to manage terminal profiles",

@@ -57,9 +57,51 @@ export interface YuyiInbox {
   bindings: Array<{
     name: string;
     recipientID: string;
-    entries: Array<{ message: { id: string; text: string; from?: { name?: string } }; receivedAt: number }>;
+    entries: Array<{
+      message: { id: string; text: string; from?: { name?: string } };
+      receivedAt: number;
+    }>;
     error?: string;
   }>;
+}
+
+/** 「Agent 微信」M1：会话条目（daemon conversations.json 索引） */
+export interface YuyiChatEntry {
+  peer: { key: string; title: string; kind: "owner" | "agent"; role?: string };
+  lastAt: number;
+  lastText: string;
+  unread: number;
+}
+
+/** 会话消息（本地流水） */
+export interface YuyiChatMessage {
+  id: string;
+  at: number;
+  dir: "out" | "in";
+  text: string;
+  from?: {
+    name?: string;
+    device?: string;
+    role?: string;
+    agentId?: string;
+    ownerUsername?: string;
+  };
+  hubId?: string;
+  ack?: { ok: boolean; detail?: string };
+}
+
+export interface YuyiChatClient {
+  fetchChatList: () => Promise<YuyiChatEntry[]>;
+  fetchChatHistory: (
+    peerKey: string,
+    tail?: number,
+  ) => Promise<{ peerKey: string; messages: YuyiChatMessage[] }>;
+  sendChat: (
+    to: string,
+    text: string,
+    myName?: string,
+  ) => Promise<{ ok: boolean; detail?: string }>;
+  fetchChatUnread: () => Promise<number>;
 }
 
 export interface YuyiClient {
@@ -68,9 +110,15 @@ export interface YuyiClient {
   fetchPeers: () => Promise<YuyiPeersEntry[]>;
   fetchInbox: () => Promise<YuyiInbox>;
   ackInbox: (binding: string, ids: string[]) => Promise<{ ok: boolean; detail?: string }>;
+  chats: YuyiChatClient;
 }
 
-async function request<T>(origin: string, path: string, init: RequestInit, bearer: string | null): Promise<T> {
+async function request<T>(
+  origin: string,
+  path: string,
+  init: RequestInit,
+  bearer: string | null,
+): Promise<T> {
   const res = await fetch(new URL(path, origin), {
     ...init,
     headers: {
@@ -117,6 +165,43 @@ export function createYuyiClient(host: HostProfile): YuyiClient {
         { method: "POST", body: JSON.stringify({ binding, ids }) },
         bearer,
       );
+    },
+    // 「Agent 微信」M1：Owner 直发 + 会话面（daemon /api/yuyi/chat/*）
+    chats: {
+      fetchChatList: () => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ conversations: YuyiChatEntry[] }>(
+          origin,
+          "/api/yuyi/chat/list",
+          {},
+          bearer,
+        ).then((r) => r.conversations);
+      },
+      fetchChatHistory: (peerKey, tail) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        const q = tail ? `?tail=${tail}` : "";
+        return request<{ peerKey: string; messages: YuyiChatMessage[] }>(
+          origin,
+          `/api/yuyi/chat/history?peer=${encodeURIComponent(peerKey)}${q}`,
+          {},
+          bearer,
+        );
+      },
+      sendChat: (to, text, myName) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean; detail?: string }>(
+          origin,
+          "/api/yuyi/chat/send",
+          { method: "POST", body: JSON.stringify({ to, text, myName }) },
+          bearer,
+        );
+      },
+      fetchChatUnread: () => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ unread: number }>(origin, "/api/yuyi/chat/unread", {}, bearer).then(
+          (r) => r.unread,
+        );
+      },
     },
   };
 }

@@ -2,7 +2,21 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  mode: {
+    workbench: "工作台",
+    wechat: "微信",
+  },
+  wechat: {
+    searchPlaceholder: "搜索会话…",
+    newChat: "发起新会话",
+    emptyConversations: "还没有会话——点右上角 + 从在线目录开始",
+    welcomeTitle: "御驿 Agent 微信",
+    welcomeSubtitle: "与你的 Agent 直接对话，或从在线目录发起新会话",
+  },
   agentChat: {
+    online: "在线",
+    offline: "离线",
+
     observe: "Agent 会话（旁观）",
     readOnly: "旁观模式：只读，Agent 间通信",
     observeTag: "旁观",

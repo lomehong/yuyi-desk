@@ -16,15 +16,19 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 
 import { PressHighlight } from "@/components/ui/press-highlight";
+import { WindowSidebarMenuToggle } from "@/components/headers/sidebar-menu-toggle";
 import { WindowChromeRegion } from "@/utils/desktop-window";
 import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
+import { ModeSwitch } from "@/components/wechat/mode-switch";
+import { topLevelModeStore } from "@/stores/wechat-mode-store";
+import { router } from "expo-router";
 
 /** 卡片与容器边缘的缝宽（顶栏下方、右、下、内容与侧栏之间） */
-const FRAME_GAP = 6;
+const FRAME_GAP = 8;
 /** 顶栏高度 */
-export const YUYI_TOPBAR_HEIGHT = 36;
+export const YUYI_TOPBAR_HEIGHT = 40;
 /** 内容卡片圆角 */
-const CARD_RADIUS = 12;
+const CARD_RADIUS = 14;
 
 export { isYuyiTauriShell };
 
@@ -51,21 +55,48 @@ export function YuyiSidebarToggle() {
   }, []);
   return (
     <PressHighlight onPress={onPress} style={styles.toggle} testID="yuyi-sidebar-toggle">
-      <Image source={require("../../assets/images/yuyi-logo.png")} style={styles.toggleLogo} />
+      <Image
+        source={require("../../assets/images/yuyi-logo.png")}
+        resizeMode="contain"
+        style={styles.toggleLogo}
+      />
       <Text style={styles.toggleLabel}>{t("yuyi.title")}</Text>
     </PressHighlight>
   );
 }
 
-/** 顶栏：左=侧栏开关，右=窗口三键（DesktopWindowControls 由 _layout 绝对定位渲染） */
+/** 顶栏：左=侧栏开关 + 模式切换，右=窗口三键（DesktopWindowControls 由 _layout 绝对定位渲染） */
 export function YuyiShellTopbar() {
   const onPointerDown = useTopBarDrag();
+  const handleModeChange = useCallback((next: "workbench" | "wechat") => {
+    topLevelModeStore.set(next);
+    const host = resolveTopbarServerId();
+    if (next === "wechat") {
+      if (host && !window.location.pathname.endsWith("/wechat")) {
+        router.push(`/h/${host}/wechat` as never);
+      }
+    } else if (host && window.location.pathname.endsWith("/wechat")) {
+      // 回工作台默认路由（HostIndexRoute 解析到最后工作区/开项目）
+      router.push(`/h/${host}` as never);
+    }
+  }, []);
   return (
     <View style={styles.topbar} onPointerDown={onPointerDown} testID="yuyi-topbar">
       <YuyiSidebarToggle />
+      <ModeSwitch onModeChange={handleModeChange} />
+      <WindowSidebarMenuToggle
+        testID="yuyi-sidebar-menu-toggle"
+        nativeID="yuyi-sidebar-menu-toggle"
+      />
       <View style={styles.topbarSpacer} />
     </View>
   );
+}
+
+/** 顶栏模式切换的路由目标：从当前路径解析 serverId */
+function resolveTopbarServerId(): string | null {
+  const match = /\/h\/([^/]+)/.exec(window.location.pathname);
+  return match?.[1] ?? null;
 }
 
 /** 内容圆角卡片（把原内容区包进卡片；缝隙即容器底色） */
@@ -94,18 +125,22 @@ const styles = StyleSheet.create((theme) => ({
   toggle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    alignSelf: "center",
+    gap: 9,
     paddingHorizontal: 12,
-    height: "100%",
+    height: 32,
+    marginLeft: 4,
+    borderRadius: theme.borderRadius.lg,
   },
   toggleLogo: {
-    width: 18,
-    height: 18,
-    resizeMode: "contain",
+    width: 20,
+    height: 20,
   },
   toggleLabel: {
-    color: theme.colors.foregroundMuted,
-    fontSize: 12,
+    color: theme.colors.foreground,
+    fontSize: 13,
+    fontWeight: theme.fontWeight.semibold,
+    letterSpacing: 0.1,
   },
   cardSlot: {
     flex: 1,
@@ -119,6 +154,8 @@ const styles = StyleSheet.create((theme) => ({
   card: {
     flex: 1,
     borderRadius: CARD_RADIUS,
+    borderWidth: 1,
+    borderColor: theme.colors.borderAccent,
     overflow: "hidden",
     backgroundColor: theme.colors.surface0,
   },

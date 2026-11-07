@@ -2,7 +2,21 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ru: TranslationResources = {
+  mode: {
+    workbench: "Workbench",
+    wechat: "WeChat",
+  },
+  wechat: {
+    searchPlaceholder: "Search conversations…",
+    newChat: "New conversation",
+    emptyConversations: "No conversations yet — tap + to pick an online agent",
+    welcomeTitle: "Yuyi Agent WeChat",
+    welcomeSubtitle: "Talk to your agents directly, or start a new conversation from the directory",
+  },
   agentChat: {
+    online: "online",
+    offline: "offline",
+
     observe: "Agent chats (observed)",
     readOnly: "Observing: read-only agent-to-agent traffic",
     observeTag: "observing",

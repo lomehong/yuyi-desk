@@ -67,6 +67,8 @@ import { openHostOverview } from "@/navigation/settings-navigation";
 import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 import { UsageSidebarItem, UsageSidebarRoot, useUsageSummary, useOpenSidebarUsage } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
+import { WeChatSidebar } from "@/components/wechat/wechat-layout";
+import { useTopLevelMode } from "@/stores/wechat-mode-store";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
@@ -314,7 +316,7 @@ function FooterIconButton({
         >
           {({ hovered, pressed }) => (
             <>
-              <SidebarFooterIconHighlight visible={pressed} />
+              <SidebarFooterIconHighlight visible={hovered || pressed} />
               <DensityIcon
                 icon={icon}
                 size="md"
@@ -532,6 +534,7 @@ function MobileSidebar({
   insetsBottom,
   closeSidebar,
 }: MobileSidebarProps) {
+  const topLevelMode = useTopLevelMode();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture();
 
@@ -569,36 +572,41 @@ function MobileSidebar({
     >
       <View style={styles.sidebarContent} pointerEvents="auto">
         <WindowChromeSafeArea placement="below" />
-        <SidebarNavRows
-          style={styles.sidebarHeaderGroup}
-          onBeforeNavigate={closeSidebar}
-          firstRowTrailing={closeButton}
-        />
-
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <SidebarAgentListSkeleton />
+        {topLevelMode === "wechat" ? (
+          <WeChatSidebar />
         ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onWorkspacePress={handleWorkspacePress}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            parentGestureRef={closeGestureRef}
-            dragGestureHostActive={active}
-            listHeaderComponent={workspacesSectionHeaderElement}
-          />
+          <>
+            <SidebarNavRows
+              style={styles.sidebarHeaderGroup}
+              onBeforeNavigate={closeSidebar}
+              firstRowTrailing={closeButton}
+            />
+            {isInitialLoad && !hasActiveHostFilter ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                groupMode={groupMode}
+                workspaceGroups={workspaceGroups}
+                projectIconTargets={projectIconTargets}
+                pinnedGroups={pinnedGroups}
+                projects={projects}
+                hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+                hasActiveProjectFilter={hasActiveProjectFilter}
+                workspaceEntriesByKey={workspaceEntriesByKey}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onWorkspacePress={handleWorkspacePress}
+                onAddProject={handleOpenProject}
+                onImportSession={handleImportSession}
+                parentGestureRef={closeGestureRef}
+                dragGestureHostActive={active}
+                listHeaderComponent={workspacesSectionHeaderElement}
+              />
+            )}
+          </>
         )}
 
         <SidebarFooter
@@ -640,6 +648,7 @@ function DesktopSidebar({
   insetsTop,
   active,
 }: DesktopSidebarProps) {
+  const topLevelMode = useTopLevelMode();
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -754,31 +763,36 @@ function DesktopSidebar({
           ) : (
             <TitlebarDragRegion />
           )}
-          <SidebarNavRows style={sidebarHeaderGroupStyle} />
+          {topLevelMode === "wechat" ? (
+            <WeChatSidebar />
+          ) : (
+            <>
+              <SidebarNavRows style={sidebarHeaderGroupStyle} />
+              {isInitialLoad && !hasActiveHostFilter ? (
+                <SidebarAgentListSkeleton />
+              ) : (
+                <SidebarWorkspaceList
+                  collapsedProjectKeys={collapsedProjectKeys}
+                  onToggleProjectCollapsed={toggleProjectCollapsed}
+                  shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                  groupMode={groupMode}
+                  workspaceGroups={workspaceGroups}
+                  projectIconTargets={projectIconTargets}
+                  pinnedGroups={pinnedGroups}
+                  projects={projects}
+                  hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+                  hasActiveProjectFilter={hasActiveProjectFilter}
+                  workspaceEntriesByKey={workspaceEntriesByKey}
+                  isRefreshing={isManualRefresh && isRevalidating}
+                  onRefresh={handleRefresh}
+                  onAddProject={handleOpenProject}
+                  onImportSession={handleImportSession}
+                  listHeaderComponent={workspacesSectionHeaderElement}
+                />
+              )}
+            </>
+          )}
         </View>
-
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            listHeaderComponent={workspacesSectionHeaderElement}
-          />
-        )}
 
         <SidebarCalloutSlot />
 
@@ -836,9 +850,9 @@ const staticStyles = RNStyleSheet.create({
 
 const styles = StyleSheet.create((theme) => ({
   sidebarHeaderGroup: {
-    paddingTop: theme.spacing[2],
-    gap: 2,
-    paddingBottom: theme.spacing[1.5],
+    paddingTop: theme.spacing[3],
+    gap: 3,
+    paddingBottom: theme.spacing[3],
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
@@ -891,13 +905,14 @@ const styles = StyleSheet.create((theme) => ({
   footerContainer: {
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceSidebar,
   },
   // Buttons sit edge to edge; their own inset spaces the glyphs.
   sidebarFooter: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[1.5],
+    paddingVertical: theme.spacing[2],
   },
   // Pushes Help and Settings to the end of the icon line.
   footerSpacer: {

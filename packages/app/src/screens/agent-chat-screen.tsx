@@ -7,7 +7,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { BadgeCheck, Bot, RefreshCw, Send } from "lucide-react-native";
@@ -56,15 +55,20 @@ function fmtTime(at: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function AgentChatScreen(): ReactElement {
+export interface AgentChatScreenProps {
+  serverId: string;
+  peerKey: string;
+  title?: string;
+  kind?: string;
+}
+
+export function AgentChatScreen({
+  serverId,
+  peerKey,
+  title,
+  kind,
+}: AgentChatScreenProps): ReactElement {
   const { t } = useTranslation();
-  const router = useRouter();
-  const { serverId, peerKey, title, kind } = useLocalSearchParams<{
-    serverId: string;
-    peerKey: string;
-    title?: string;
-    kind?: string;
-  }>();
   const hosts = useHosts();
   const host = hosts.find((h) => h.serverId === serverId);
   const client = useMemo(() => (host ? createYuyiClient(host) : null), [host]);
@@ -105,10 +109,6 @@ export function AgentChatScreen(): ReactElement {
     const timer = setInterval(() => void refresh(), 15_000);
     return () => clearInterval(timer);
   }, [refresh]);
-
-  const goBack = useCallback(() => {
-    router.back();
-  }, [router]);
 
   const send = useCallback(() => {
     const text = draft.trim();
@@ -151,9 +151,6 @@ export function AgentChatScreen(): ReactElement {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <ToolbarButton label={t("common.actions.back")} onPress={goBack}>
-          <Text style={styles.backGlyph}>←</Text>
-        </ToolbarButton>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {peerTitle}
           {peerKind === "owner" ? <Text style={styles.ownerTag}> · Owner</Text> : null}

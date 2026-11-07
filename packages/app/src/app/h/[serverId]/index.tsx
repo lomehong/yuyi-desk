@@ -1,4 +1,5 @@
 import { Redirect } from "expo-router";
+import { getStoredTopLevelMode } from "@/stores/wechat-mode-store";
 import { useHostRouteServerId } from "@/navigation/host-route-context";
 import {
   resolveHostIndexRoute,
@@ -22,6 +23,11 @@ export default function HostIndexRoute() {
 
   if (!serverId || !isWorkspaceSelectionLoaded) {
     return <StartupSplashScreen />;
+  }
+
+  // 顶层模式持久化（「Agent 微信」重构）：上次停留在微信模式则直接回到微信
+  if (getStoredTopLevelMode() === "wechat") {
+    return <Redirect href={`/h/${serverId}/wechat`} />;
   }
 
   return (

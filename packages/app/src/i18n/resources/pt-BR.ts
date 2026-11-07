@@ -1102,7 +1102,6 @@ export const ptBR: TranslationResources = {
           runningAccessible: "Verificações em andamento",
         },
         sections: {
-          agents: "Agents",
           checks: "Verificações",
           pipeline: "Pipeline",
           reviews: "Revisões",
@@ -1312,6 +1311,7 @@ export const ptBR: TranslationResources = {
     },
     sections: {
       sessions: "Histórico",
+      agents: "Agents",
       search: "Buscar",
       schedules: "Agendamentos",
       yuyi: "Yuyi",

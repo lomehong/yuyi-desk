@@ -69,6 +69,11 @@ export class YuyiLink {
     return this.hub?.connectionPrincipal;
   }
 
+  /** 本连接 Owner 的御符 userId（welcome 回带；Owner 收件人寻址用，「Agent 微信」M1 §2.4） */
+  get ownerUserId(): string | undefined {
+    return this.hub?.hubOwnerUserId;
+  }
+
   /** 启动设备级 Hub WS */
   start(): void {
     if (this.hub) {
@@ -153,7 +158,11 @@ export class YuyiLink {
    * 建立/替换绑定（同御驿名出现新的匹配 Paseo agent 时换绑——最新胜出），
    * 并立即（重）注册到 Hub。Hub 未连时由 onWelcome 补做。
    */
-  bind(mapping: YuyiAgentMapping & { token: string }, paseoAgentId: string, title?: string | null): YuyiBinding {
+  bind(
+    mapping: YuyiAgentMapping & { token: string },
+    paseoAgentId: string,
+    title?: string | null,
+  ): YuyiBinding {
     const previous = this.byName.get(mapping.name);
     if (previous) {
       if (previous.paseoAgentId !== paseoAgentId) {
@@ -178,7 +187,12 @@ export class YuyiLink {
       // agent 兼容模式：roster 上行（会话 ID 合成 `${name}:${paseoAgentId}`，
       // 与 send 的 from.sessionID 同形态）
       this.hub.updateRoster(
-        sessions.map((s) => ({ ...s, sessionID: `${binding.name}:${s.sessionID}` })),
+        sessions.map((s) => ({
+          sessionID: `${binding.name}:${s.sessionID}`,
+          title: s.title,
+          directory: s.directory,
+          name: s.name,
+        })),
       );
     }
     return binding;

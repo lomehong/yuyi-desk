@@ -1071,7 +1071,6 @@ export const zhCN: TranslationResources = {
           runningAccessible: "检查运行中",
         },
         sections: {
-          agents: "Agents",
           checks: "检查",
           pipeline: "流水线",
           reviews: "评审",
@@ -1278,6 +1277,7 @@ export const zhCN: TranslationResources = {
     },
     sections: {
       sessions: "历史",
+      agents: "Agents",
       search: "搜索",
       schedules: "计划",
       yuyi: "御驿",

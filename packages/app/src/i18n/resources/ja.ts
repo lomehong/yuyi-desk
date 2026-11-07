@@ -1092,7 +1092,6 @@ export const ja: TranslationResources = {
           runningAccessible: "チェック実行中",
         },
         sections: {
-          agents: "Agents",
           checks: "チェック",
           pipeline: "パイプライン",
           reviews: "レビュー",
@@ -1300,6 +1299,7 @@ export const ja: TranslationResources = {
     },
     sections: {
       sessions: "履歴",
+      agents: "Agents",
       search: "検索",
       schedules: "スケジュール",
       yuyi: "Yuyi",

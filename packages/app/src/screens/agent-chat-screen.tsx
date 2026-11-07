@@ -28,6 +28,21 @@ const AMBER_ICON = (theme: Theme) => ({ color: theme.colors.palette.amber[500] }
 const MUTED_ICON = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 const SEND_ICON = (theme: Theme) => ({ color: theme.colors.surface0 });
 
+/**
+ * §6-4 投递可靠性状态明示（设计 §4 矩阵的 UI 面）：
+ * - !ok → ✗（发送失败，可重试）
+ * - ok 且 ack.detail 提及 mail（Hub wakeNote 降级话术：mailed to / 已降级为 mail /
+ *   fell back to mail）→「✓·已转收件箱」——notify→mail 降级随时发生，明示而非
+ *   只给 ✓，避免误以为已实时送达
+ * - ok 无降级 → ✓（直投）
+ */
+function deliveryStateText(ack: { ok: boolean; detail?: string }): string {
+  if (!ack.ok) return "✗";
+  const d = ack.detail ?? "";
+  const mailFallback = /mail/i.test(d) || d.includes("收件箱");
+  return mailFallback ? "✓·已转收件箱" : "✓";
+}
+
 function fmtTime(at: number): string {
   const d = new Date(at);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -168,8 +183,8 @@ function Bubble({ msg }: { msg: YuyiChatMessage }): ReactElement {
         <Text style={styles.bubbleText}>{msg.text}</Text>
         <View style={styles.bubbleMeta}>
           {mine && msg.ack ? (
-            <Text style={[styles.metaText, !msg.ack.ok && styles.metaFail]}>
-              {msg.ack.ok ? "✓" : "✗"}
+            <Text style={[styles.metaText, !msg.ack.ok && styles.metaFail]} numberOfLines={1}>
+              {deliveryStateText(msg.ack)}
             </Text>
           ) : null}
           <Text style={styles.metaText}>{fmtTime(msg.at)}</Text>

@@ -16,14 +16,17 @@ import type { Logger } from "pino";
 import { randomUUID } from "node:crypto";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
+/* eslint-disable paseo/no-sync-io -- yuyi-gate/token-cache 小文件读写：损坏即空名单的容忍语义 */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { sendPromptToAgent, waitForAgentRunStartWithTimeout } from "../agent/agent-prompt.js";
 import {
-  sendPromptToAgent,
-  waitForAgentRunStartWithTimeout,
-} from "../agent/agent-prompt.js";
-import { matchMapping, resolveYuyiConfig, type YuyiAgentMapping, type YuyiConfig } from "./config.js";
+  matchMapping,
+  resolveYuyiConfig,
+  type YuyiAgentMapping,
+  type YuyiConfig,
+} from "./config.js";
 import { ConversationStore, type ChatMessage, type PeerRef } from "./conversations.js";
 import { YuyiLink, type YuyiBinding } from "./link.js";
 import type { YuyiMessage } from "@qianji/protocol";
@@ -73,7 +76,11 @@ function writeTokenCache(path: string, cache: Record<string, TokenCacheEntry>): 
 
 /** 读取闸门名单（兼容两代形态：旧 string[] blocked / 新 {blocked, terminated}；
  * 文件缺失/损坏 = 空名单，不因持久化问题拒绝服务） */
-type BlockedEntry = { reason: string; at: number; until?: number };
+interface BlockedEntry {
+  reason: string;
+  at: number;
+  until?: number;
+}
 
 interface GateFile {
   blocked: Record<string, BlockedEntry>;
@@ -122,7 +129,6 @@ function appendGateEvent(path: string, event: Record<string, unknown>): void {
 }
 
 // writeFileSync 在顶部 node:fs 导入
-
 
 export class YuyiService {
   private readonly logger: Logger;
@@ -177,7 +183,9 @@ export class YuyiService {
     return secrets;
   }
 
-  bindingFor(paseoAgentId: string): { name: string; agentId: string; paseoAgentId: string } | undefined {
+  bindingFor(
+    paseoAgentId: string,
+  ): { name: string; agentId: string; paseoAgentId: string } | undefined {
     const binding = this.byPaseo.get(paseoAgentId);
     return binding
       ? { name: binding.name, agentId: binding.agentId, paseoAgentId: binding.paseoAgentId }
@@ -279,6 +287,23 @@ export class YuyiService {
       seenRecipients.add(recipientID);
       return true;
     });
+    // Owner 收件箱（「Agent 微信」M1 §2.4）：Owner 直发的回信降级 mail 落在
+    // owner:<ownerUserId>:owner@<device>（Hub 在 Owner 直发时注册）。设备
+    // 连接的 inbox/fetch 对该 recipient 有归属豁免（ownerUserId=设备凭证）。
+    // welcome 未回带 ownerUserId（老 Hub）时跳过——回信仍拒信可见，不静默。
+    const ownerUid = this.link?.ownerUserId;
+    const device = this.cachedConfig?.device;
+    if (ownerUid && device && this.link?.principal === "device") {
+      // name 段按协议 recipientID 约定小写（protocol.ts recipientID）
+      const ownerRecipientID = `owner:${ownerUid}:owner@${device.toLowerCase()}`;
+      if (!seenRecipients.has(ownerRecipientID)) {
+        seenRecipients.add(ownerRecipientID);
+        targets.push({
+          agentId: `owner:${ownerUid}`,
+          name: `owner@${device}`,
+        } as (typeof targets)[number]);
+      }
+    }
     const results = await Promise.all(
       targets.map(async (b) => {
         const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
@@ -368,43 +393,55 @@ export class YuyiService {
     try {
       const snapshot = await this.inboxSnapshot();
       for (const binding of snapshot.bindings) {
-        const entries = binding.entries as Array<{
-          message?: { id?: string; text?: string; time?: number; from?: Record<string, unknown> };
-          receivedAt?: number;
-        }>;
-        if (!Array.isArray(entries) || entries.length === 0) continue;
-        const ackIds: string[] = [];
-        for (const e of entries) {
-          const msg = e?.message;
-          const hubId = msg?.id;
-          if (!hubId) continue;
-          ackIds.push(hubId);
-          const from = (msg?.from ?? {}) as {
-            name?: string; device?: string; role?: string; agentId?: string; ownerUsername?: string;
-          };
-          const senderKey = this.peerKeyOfFrom(from);
-          const peer: PeerRef = {
-            key: senderKey,
-            title: from.ownerUsername || from.name || from.device || "未知",
-            kind: from.role === "owner" ? "owner" : "agent",
-            role: from.role,
-          };
-          const chatMsg: ChatMessage = {
-            id: randomUUID(),
-            at: e.receivedAt ?? msg.time ?? Date.now(),
-            dir: "in",
-            text: msg.text ?? "",
-            from,
-            hubId,
-          };
-          await this.chats.append(peer, chatMsg);
-        }
-        if (ackIds.length > 0) {
-          await this.link.inboxAck(ackIds, binding.recipientID).catch(() => {});
-        }
+        await this.drainBindingIntoChats(binding);
       }
     } catch {
       // 轮询失败静默（下轮重试）；不影响 daemon 主流程
+    }
+  }
+
+  /** 单收件人 drain：inbox 条目归组会话 + ack（「Agent 微信」M1 会话数据源） */
+  private async drainBindingIntoChats(binding: {
+    recipientID: string;
+    entries: unknown[];
+  }): Promise<void> {
+    const entries = binding.entries as Array<{
+      message?: { id?: string; text?: string; time?: number; from?: Record<string, unknown> };
+      receivedAt?: number;
+    }>;
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const ackIds: string[] = [];
+    for (const e of entries) {
+      const msg = e?.message;
+      const hubId = msg?.id;
+      if (!hubId) continue;
+      ackIds.push(hubId);
+      const from = (msg?.from ?? {}) as {
+        name?: string;
+        device?: string;
+        role?: string;
+        agentId?: string;
+        ownerUsername?: string;
+      };
+      const senderKey = this.peerKeyOfFrom(from);
+      const peer: PeerRef = {
+        key: senderKey,
+        title: from.ownerUsername || from.name || from.device || "未知",
+        kind: from.role === "owner" ? "owner" : "agent",
+        role: from.role,
+      };
+      const chatMsg: ChatMessage = {
+        id: randomUUID(),
+        at: e.receivedAt ?? msg.time ?? Date.now(),
+        dir: "in",
+        text: msg.text ?? "",
+        from,
+        hubId,
+      };
+      await this.chats.append(peer, chatMsg);
+    }
+    if (ackIds.length > 0 && this.link) {
+      await this.link.inboxAck(ackIds, binding.recipientID).catch(() => {});
     }
   }
 
@@ -413,7 +450,10 @@ export class YuyiService {
     // canonical agentId:name / owner:uid:name / 裸名
     const parts = target.split(":");
     if (parts.length >= 2 && parts[0] === "owner") {
-      return { key: target, title: parts.slice(2).join(":") || target, kind: "owner" };
+      // owner 的 uid 含冒号（owner:yufu:lisi:alias）——取最后一个冒号后的段为
+      // 别名（owner@<device>），与 Hub ownerRecipientID 对齐，peerKey 可直接复发
+      const alias = target.slice(target.lastIndexOf(":") + 1) || target;
+      return { key: target, title: alias, kind: "owner" };
     }
     if (parts.length >= 2) {
       return { key: target, title: parts.slice(1).join(":"), kind: "agent" };
@@ -424,6 +464,13 @@ export class YuyiService {
   /** 由入向消息 from 推 canonical peerKey */
   private peerKeyOfFrom(from: { name?: string; agentId?: string; ownerUsername?: string }): string {
     if (from.agentId?.startsWith("owner:")) {
+      // canonical owner:<uid>:owner@<device>（Hub 投递补的合成会话名）——可直接
+      // 作 target 复发（Hub resolve 裸名/精确都能命中注册的 owner 收件人）。
+      // 旧形态 owner:<uid>:<自报名> 的历史会话保留展示，不再新造。
+      const device = (from as { device?: string }).device;
+      if (from.agentId && device) {
+        return `${from.agentId}:owner@${device.toLowerCase()}`;
+      }
       return `${from.agentId}:${from.name ?? from.ownerUsername ?? "owner"}`;
     }
     if (from.agentId && from.name) return `${from.agentId}:${from.name}`;
@@ -513,7 +560,10 @@ export class YuyiService {
     this.link.start();
     // 「Agent 微信」M1：本地会话存储 + 收件箱轮询合并（Owner 直发的回信走
     // inbox——wakeup_failed 降级 mail，恰好「死信=等人看=Owner 的信」语义）
-    this.chats = new ConversationStore(this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"), (m) => this.logger.info(m));
+    this.chats = new ConversationStore(
+      this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
+      (m) => this.logger.info(m),
+    );
     this.inboxPollTimer = setInterval(() => void this.pollInboxIntoChats(), 15_000);
     this.inboxPollTimer.unref?.();
     void this.pollInboxIntoChats();
@@ -555,16 +605,18 @@ export class YuyiService {
     try {
       const config = this.cachedConfig;
       const visibility = config?.activity ?? { busy: false, doing: false, repo: "off" as const };
-      const gateAgents = [...this.byPaseo.values()].map((b) => ({
-        agentId: b.agentId,
-        name: b.name,
-        ...(this.isBlocked(b.agentId) ? { blocked: this.blockedAgents.get(b.agentId)! } : {}),
-        ...(this.terminatedAgents.has(b.agentId)
-          ? { terminated: this.terminatedAgents.get(b.agentId) }
-          : {}),
+      const gateAgents = [...this.byPaseo.values()].map((b) => {
+        const entry: Record<string, unknown> = { agentId: b.agentId, name: b.name };
+        if (this.isBlocked(b.agentId)) {
+          entry.blocked = this.blockedAgents.get(b.agentId)!;
+        }
+        if (this.terminatedAgents.has(b.agentId)) {
+          entry.terminated = this.terminatedAgents.get(b.agentId);
+        }
         // P1-7 会话目录：字段级 opt-in——只在配置显式允许时上报对应字段
-        ...this.activityFieldsFor(b.paseoAgentId, visibility),
-      }));
+        Object.assign(entry, this.activityFieldsFor(b.paseoAgentId, visibility));
+        return entry;
+      });
       this.link.rawRequest({
         type: "device/state",
         id: `devstate_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
@@ -603,7 +655,9 @@ export class YuyiService {
       }
       if (visibility.repo !== "off" && agent.cwd) {
         // 目录名即仓库展示名（与 paseo 工作区命名一致）；不含盘符路径
-        const parts = String(agent.cwd).replace(/[\\/]+$/, "").split(/[\\/]/);
+        const parts = String(agent.cwd)
+          .replace(/[\\/]+$/, "")
+          .split(/[\\/]/);
         const repoName = parts[parts.length - 1];
         if (repoName) activity.repo = repoName;
       }
@@ -688,7 +742,10 @@ export class YuyiService {
       this.pushDeviceState();
       this.link?.unbindPaseo(binding.paseoAgentId);
       this.byPaseo.delete(binding.paseoAgentId);
-      return { ok: true, detail: `已停止并归档 agent ${binding.paseoAgentId.slice(0, 8)}（身份已屏蔽自动注入）` };
+      return {
+        ok: true,
+        detail: `已停止并归档 agent ${binding.paseoAgentId.slice(0, 8)}（身份已屏蔽自动注入）`,
+      };
     }
     if (op === "block") {
       this.blockedAgents.set(agentId, {
@@ -705,7 +762,7 @@ export class YuyiService {
     this.appendGateEvent("release", agentId);
     this.persistGate();
     this.pushDeviceState();
-      return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
+    return { ok: true, detail: `已解除 ${binding.name} 屏蔽` };
   }
 
   private persistGate(): void {
@@ -732,7 +789,10 @@ export class YuyiService {
   }
 
   private get eventsPath(): string {
-    return join(this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"), "yuyi-gate-events.jsonl");
+    return join(
+      this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
+      "yuyi-gate-events.jsonl",
+    );
   }
 
   /**
@@ -966,6 +1026,7 @@ export class YuyiService {
             { detail: r.detail, paseoAgentId: binding.paseoAgentId },
             "注入失败，跳过自动回信",
           );
+          return undefined;
         });
       }
     }
@@ -987,7 +1048,7 @@ export class YuyiService {
       );
       const text = wait.permission
         ? "（执行已暂停：等待权限确认，暂无最终结果）"
-        : (wait.lastMessage?.trim() || "（执行完成，无文本输出）");
+        : wait.lastMessage?.trim() || "（执行完成，无文本输出）";
       if (!this.link || !this.cachedConfig) {
         return;
       }

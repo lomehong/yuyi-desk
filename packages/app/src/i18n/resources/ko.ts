@@ -1086,7 +1086,6 @@ export const ko: TranslationResources = {
           runningAccessible: "검사 진행 중",
         },
         sections: {
-          agents: "Agents",
           checks: "검사",
           pipeline: "파이프라인",
           reviews: "리뷰",
@@ -1293,6 +1292,7 @@ export const ko: TranslationResources = {
     },
     sections: {
       sessions: "기록",
+      agents: "Agents",
       search: "검색",
       schedules: "일정",
       yuyi: "Yuyi",

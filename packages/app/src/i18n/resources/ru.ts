@@ -1096,7 +1096,6 @@ export const ru: TranslationResources = {
           runningAccessible: "Проверки выполняются",
         },
         sections: {
-          agents: "Agents",
           checks: "Проверки",
           pipeline: "Пайплайн",
           reviews: "Ревью",
@@ -1304,6 +1303,7 @@ export const ru: TranslationResources = {
     },
     sections: {
       sessions: "История",
+      agents: "Agents",
       search: "Поиск",
       schedules: "Расписания",
       yuyi: "Yuyi",

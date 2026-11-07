@@ -1105,7 +1105,6 @@ export const fr: TranslationResources = {
           runningAccessible: "Vérifications en cours",
         },
         sections: {
-          agents: "Agents",
           checks: "Vérifications",
           pipeline: "Pipeline",
           reviews: "Revues",
@@ -1316,6 +1315,7 @@ export const fr: TranslationResources = {
     },
     sections: {
       sessions: "Historique",
+      agents: "Agents",
       search: "Recherche",
       schedules: "Planifications",
       yuyi: "Yuyi",

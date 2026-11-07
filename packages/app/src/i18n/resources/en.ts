@@ -1087,7 +1087,6 @@ export const en = {
           runningAccessible: "Checks running",
         },
         sections: {
-          agents: "Agents",
           checks: "Checks",
           pipeline: "Pipeline",
           reviews: "Reviews",
@@ -1294,6 +1293,7 @@ export const en = {
     },
     sections: {
       sessions: "History",
+      agents: "Agents",
       search: "Search",
       schedules: "Schedules",
       yuyi: "Yuyi",

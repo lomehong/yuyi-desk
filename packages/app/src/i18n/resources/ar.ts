@@ -1079,7 +1079,6 @@ export const ar: TranslationResources = {
           runningAccessible: "الفحوصات قيد التشغيل",
         },
         sections: {
-          agents: "Agents",
           checks: "الشيكات",
           pipeline: "خط المعالجة",
           reviews: "التعليقات",
@@ -1286,6 +1285,7 @@ export const ar: TranslationResources = {
     },
     sections: {
       sessions: "السجل",
+      agents: "Agents",
       search: "بحث",
       schedules: "الجداول",
       yuyi: "Yuyi",

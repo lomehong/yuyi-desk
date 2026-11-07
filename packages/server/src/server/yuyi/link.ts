@@ -134,7 +134,11 @@ export class YuyiLink {
             const handlerSessionID = `${binding.name}:${binding.paseoAgentId}`;
             const r = await this.opts.deliverToAgent(binding, message);
             return r.ok
-              ? { status: "accepted_async", handlerSessionID }
+              ? {
+                  status: "accepted_async",
+                  detail: `已注入 agent ${binding.name}（回合受理中）`,
+                  handlerSessionID,
+                }
               : { status: "wakeup_failed", detail: r.detail };
           }
         }

@@ -37,10 +37,12 @@ const SEND_ICON = (theme: Theme) => ({ color: theme.colors.surface0 });
  * - ok 无降级 → ✓（直投）
  */
 function deliveryStateText(ack: { ok: boolean; detail?: string }): string {
-  if (!ack.ok) return "✗";
+  if (!ack.ok) return "发送失败";
   const d = ack.detail ?? "";
   const mailFallback = /mail/i.test(d) || d.includes("收件箱");
-  return mailFallback ? "✓·已转收件箱" : "✓";
+  if (mailFallback) return "已转对方收件箱（离线）";
+  if (d.includes("已注入")) return "对方处理中";
+  return "已送达";
 }
 
 function resolvePeerKind(kind?: string): "owner" | "agent" | "observe" {
@@ -68,6 +70,7 @@ export function AgentChatScreen(): ReactElement {
   const client = useMemo(() => (host ? createYuyiClient(host) : null), [host]);
 
   const [messages, setMessages] = useState<YuyiChatMessage[]>([]);
+  const [peerOnline, setPeerOnline] = useState<boolean | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,14 @@ export function AgentChatScreen(): ReactElement {
       setError(null);
     } catch (e) {
       setError(String(e));
+    }
+    // 对端在线状态（设计 §3 字段诚实降级：仅 在线/离线，不做 busy 推断）
+    const agentId = peerKey.split(":")[0];
+    try {
+      const peers = await client.fetchPeers();
+      setPeerOnline(peers.some((p) => p.agentId === agentId));
+    } catch {
+      setPeerOnline(null);
     }
   }, [client, peerKey]);
 
@@ -147,6 +158,12 @@ export function AgentChatScreen(): ReactElement {
           {peerTitle}
           {peerKind === "owner" ? <Text style={styles.ownerTag}> · Owner</Text> : null}
           {readOnly ? <Text style={styles.ownerTag}> · {t("agentChat.observeTag")}</Text> : null}
+          {peerOnline !== null ? (
+            <Text style={[styles.ownerTag, peerOnline && styles.onlineTag]}>
+              {" · "}
+              {peerOnline ? t("agentChat.online") : t("agentChat.offline")}
+            </Text>
+          ) : null}
         </Text>
         <ToolbarButton label={t("yuyi.refresh")} onPress={refresh}>
           <ThemedRefreshCw size={15} uniProps={MUTED_ICON} />
@@ -214,6 +231,7 @@ function Bubble({ msg }: { msg: YuyiChatMessage }): ReactElement {
         <View style={styles.bubbleMeta}>
           {mine && msg.ack ? (
             <Text style={[styles.metaText, !msg.ack.ok && styles.metaFail]} numberOfLines={1}>
+              {msg.ack.ok ? "✓ " : "✗ "}
               {deliveryStateText(msg.ack)}
             </Text>
           ) : null}
@@ -242,6 +260,7 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   ownerTag: { color: theme.colors.palette.amber[500], fontSize: 12 },
+  onlineTag: { color: theme.colors.palette.green[500] },
   backGlyph: { color: theme.colors.foreground, fontSize: 18, lineHeight: 22 },
   scroll: { flex: 1 },
   scrollContent: { padding: theme.spacing[3], gap: theme.spacing[2] },

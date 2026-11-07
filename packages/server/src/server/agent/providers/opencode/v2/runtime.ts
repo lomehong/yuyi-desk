@@ -239,7 +239,9 @@ export class V2Runtime {
         headers: {
           Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
         },
-        fetch: async (request, init) => {
+        // DOM lib ≥5.9 的 typeof fetch 增加了 preconnect 可选成员；本包装器只
+        // 覆盖默认调用形态，显式断言（未实现成员时调用方回落全局实现，行为不变）。
+        fetch: (async (request: URL | RequestInfo, init?: RequestInit) => {
           const signal = init?.signal
             ? AbortSignal.any([init.signal, processAbort.signal])
             : processAbort.signal;
@@ -250,7 +252,7 @@ export class V2Runtime {
             throw new OpenCodeHttpError(new URL(requestUrl).pathname, response.status, html);
           }
           return response;
-        },
+        }) as typeof fetch,
       });
       await client.server.info({ signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
       const generation: Generation = { client, users: 0, stop, exited };

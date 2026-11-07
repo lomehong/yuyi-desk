@@ -224,6 +224,23 @@ export class YuyiLink {
     return hub.send(message, from);
   }
 
+  /**
+   * Owner 本人直发（「Agent 微信」M1）：from 不声明 agentId——Hub resolveActor
+   * 从设备凭证合成 Owner 主体（role=owner，接收端按「Owner 直接指令 · 最高
+   * 优先级」渲染）。M1 限 1:1（广播被 Hub 拒）。
+   */
+  async sendFromOwner(
+    message: Omit<YuyiMessage, "from"> & { from?: Partial<YuyiMessage["from"]> },
+  ): Promise<{ ok: boolean; detail?: string }> {
+    const hub = this.hub;
+    if (!hub?.connected) {
+      return { ok: false, detail: "yuyi hub offline" };
+    }
+    // Owner 直发：设备连接上 from 无 agentId（Hub 合成 Owner 身份）。
+    // from 只带 device/name（自报展示名透传）——sessionID 缺省（Owner 豁免 roster）。
+    return hub.send(message as YuyiMessage, undefined);
+  }
+
   /** Hub peers 快照（未连接时抛错由调用方兜底） */
   async peers(): Promise<unknown> {
     if (!this.hub?.connected) {

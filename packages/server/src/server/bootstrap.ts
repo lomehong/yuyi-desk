@@ -1525,6 +1525,52 @@ export async function createPaseoDaemon(
     }
     res.json(await yuyiService.unreadSnapshot());
   });
+  // ---- 「Agent 微信」M1：Owner 直发 + 会话面（设计 docs/御驿-Agent微信-设计.md §6）----
+  app.post("/api/yuyi/chat/send", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const body = req.body as { to?: unknown; text?: unknown; myName?: unknown };
+    const to = typeof body.to === "string" ? body.to.trim() : "";
+    const text = typeof body.text === "string" ? body.text : "";
+    const myName = typeof body.myName === "string" ? body.myName : undefined;
+    if (!to || !text.trim()) {
+      res.status(400).json({ error: "to 与 text 必填" });
+      return;
+    }
+    void yuyiService
+      .sendAsOwner({ to, text, myName })
+      .then((ack) => res.json(ack))
+      .catch((error) => res.status(502).json({ error: String(error) }));
+  });
+  app.get("/api/yuyi/chat/list", async (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    res.json({ conversations: await yuyiService.chatList() });
+  });
+  app.get("/api/yuyi/chat/history", async (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const peerKey = String(req.query.peer ?? "").trim();
+    const tail = Number(req.query.tail ?? 200);
+    if (!peerKey) {
+      res.status(400).json({ error: "peer 必填" });
+      return;
+    }
+    res.json(await yuyiService.chatHistory(peerKey, Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 1000) : 200));
+  });
+  app.get("/api/yuyi/chat/unread", async (_req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    res.json({ unread: await yuyiService.chatUnread() });
+  });
   app.post("/api/yuyi/inbox/ack", (req, res) => {
     const body = req.body as { binding?: string; ids?: unknown };
     const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];

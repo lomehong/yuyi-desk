@@ -120,6 +120,23 @@ export function AgentChatScreen(): ReactElement {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, []);
 
+  // Enter 发送 / Shift+Enter 换行（微信习惯；桌面壳 web 环境的 KeyboardEvent）。
+  // keyCode 229 = IME 组合中的确认回车（选字），不得当作发送。
+  const onInputKeyPress = useCallback(
+    (e: {
+      nativeEvent?: { key?: string; shiftKey?: boolean; keyCode?: number };
+      preventDefault?: () => void;
+    }) => {
+      const ev = e.nativeEvent;
+      if (!ev || ev.keyCode === 229) return;
+      if (ev.key === "Enter" && !ev.shiftKey) {
+        e.preventDefault?.();
+        send();
+      }
+    },
+    [send],
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -158,11 +175,12 @@ export function AgentChatScreen(): ReactElement {
             style={styles.input}
             initialValue=""
             onChangeText={setDraft}
+            onKeyPress={onInputKeyPress}
             placeholder={t("agentChat.inputPlaceholder")}
             multiline
           />
           <ToolbarButton label={t("agentChat.send")} onPress={send} disabled={!canSend} round>
-            <ThemedSend size={18} uniProps={SEND_ICON} />
+            <ThemedSend size={18} uniProps={canSend ? SEND_ICON : MUTED_ICON} />
           </ToolbarButton>
         </View>
       )}

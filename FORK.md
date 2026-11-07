@@ -202,6 +202,21 @@ Owner 直发通道全链路实现（设计三轮定稿：Owner 本人是发送�
 切回工作台全部通过；release exe 需 touch lib.rs 强制重嵌（web-dist 不在
 cargo 增量指纹内——以后每次前端改动都要 touch 再 cargo build --release）。
 
+### Agent 微信 UI v2 P0 全量落地（2026-11-08，15b588f23）
+
+按 docs/御驿-Agent微信-UI设计-v2/ 四批次路线图系统实现（44 文件 +4911/-739）：
+
+- **状态可见性**：daemon sendAsOwner 结构化 ack（messageId+delivery）+3s inbox
+  探针（回信感知 30s→≤3s）+preview/turns/notify-suppress 端点+replyTo/taskId
+  落盘+activity 透传；Tauri notify_loop 数据源切 chat/unread（修通知反转）；
+  app S0~S5′ 状态机（乐观插入/重试/聚焦轮询/滚动治理/草稿持久化）
+- **侧栏与目录**：共享数据层单例；agentId 聚合行+子会话；DirectoryOverlay
+  三段分组+键导航；分段器未读徽标；快捷键注册；「联系 Agent」改名
+- **Agent 原生**：身份卡/结果卡（引用+代码+折叠）/旁观 taskId 回合+转介入
+- **视觉清偿**：AgentAvatar tint 体系；yuyi-screen 剥 useUnistyles；令牌刻度
+- 验证：46+ 新测试全绿、两端 typecheck 0、oxlint 0/0、全量套件零回归、
+  release 实机走查（身份卡/状态词/离线提示渲染确认）
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原

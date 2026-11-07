@@ -23,7 +23,7 @@
 ## 里程碑 / Milestones
 
 - **M1 daemon 内核** ✅（已验收，生产 Hub 双向）：设备主体/兼容连接、notify→注入→自动回信、
-  yuyi_* MCP 出站（/mcp/yuyi）、roster、per-agent env。commit 7066079f1 起。
+  yuyi\_\* MCP 出站（/mcp/yuyi）、roster、per-agent env。commit 7066079f1 起。
 - **M2 客户端** ✅：Tauri 2 壳（无边框、「容器+卡片」帧、顶栏开关/三键、daemon 随包自启）、
   读 API（/api/yuyi/status|peers|inbox|ack）、原生御驿界面（状态/收件箱/同伴，9 语言）。
   - **桌面托管 host 连接凭证通道（2026-11-01 补齐，8f0ac18c8）**：paseo web 层连接
@@ -49,13 +49,13 @@
     生效+持久化）——全部通过。**测试方法教训**：合成 value-setter 输入不被 RN-web
     受控 composer 登记，会走「空提交」路径建出无 agent 工作区——UI 测试必须用
     CDP Input.insertText 等真实输入通道。**本地化审查（2026-11-01 第三轮）**：用户指出切中文后仍夹英文。两类缺口——
-① schedules 簇四文件完全硬编码、② zh-CN 里 4 处整块引用 en.settings.layout 等
-（213 条值漏翻）。已修：schedules 全部接入 i18n（schedules.* 命名空间 9 语言、
-describeCron 参数化）+ zh-CN settings.layout 内联中文（d06004e74）。
-**第三轮批量清理（9e386a6f8）**：170 条逐条翻译 + plugin-settings 共享 logs
-zh 覆盖 + browser-tools-config 硬编码接入 i18n + skills/lifecycle/chooseHostTitle
-内联。**清理后残留仅专有名词**（Hub/Agents/Agent ID/Enter/主题名/Discord/ACP/
-Markdown/HTML 等约 24 条，按惯例保留英文）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
+    ① schedules 簇四文件完全硬编码、② zh-CN 里 4 处整块引用 en.settings.layout 等
+    （213 条值漏翻）。已修：schedules 全部接入 i18n（schedules.\* 命名空间 9 语言、
+    describeCron 参数化）+ zh-CN settings.layout 内联中文（d06004e74）。
+    **第三轮批量清理（9e386a6f8）**：170 条逐条翻译 + plugin-settings 共享 logs
+    zh 覆盖 + browser-tools-config 硬编码接入 i18n + skills/lifecycle/chooseHostTitle
+    内联。**清理后残留仅专有名词**（Hub/Agents/Agent ID/Enter/主题名/Discord/ACP/
+    Markdown/HTML 等约 24 条，按惯例保留英文）。**已知环境问题（非缺陷）**：opencode API key 过期（回信为
     报错文本）、Antigravity/Muse CLI 未装（Providers 显示错误属正常状态）。
   - 分发链路：**已打通**——NSIS 自包含安装包（129.7MiB：壳 + node.exe + 完整生产依赖树 +
     yuyi-daemon.json 模板），静默安装→壳拉起捆绑 daemon→invoke 桥→首启引导界面，端到端验证通过。
@@ -87,9 +87,11 @@ welcome 正常回带 `connectionPrincipal:"device"`，连接建立。即 **Hub �
 部署实例版本落后**（其 verifyDevice 路径与当前御符不匹配）。
 
 **处理：更新部署 Hub**（在部署机/仓库根）：
+
 ```bash
 bash deploy/smart-deploy.sh --force-restart   # hub 是后端变更，需强制重启
 ```
+
 （会先过 check-deploy.sh 他证门禁；systemd 服务 yuyi-hub.service 自动拉起）
 
 升级后验证（任一端一条探针即证）：fork 侧把 config.json 的 `yuyi.principal`
@@ -110,6 +112,7 @@ mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
 
 **生产部署 863ca9c 后即完整可用**（fork 侧 principal 已是 device 缺省，
 无需再动）：
+
 - 凭证代领 + agent/register + deliver 寻址 + 回执认领全链路生效；
 - deliver 快速受理（5s race）不再被 10s 超时吞掉；
 - yuyi-agent 吸收合并的前置全部解除（control/state/闸门已交付）。
@@ -119,6 +122,7 @@ mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
 ## Reason 互补研究落地（2026-11-07，Yuyi 主仓 00e4da7/7f88d11 + 本仓 7640e31/2d65f4f7b）
 
 17 项可借鉴方向系统性落地（研究报告四方向深研+独立评审+修订）：
+
 - **P0 全实现**：桌面通知弹屏桥（Tauri notification+轮询 /api/yuyi/unread 计数
   探针+端侧三重抑制：每发送人 10min 去重/10min 过期不弹/单轮≤3）；敏感凭证
   出站剥除三面（Hub 形态/设备端值/本地短路，fail-closed，单测 8 例）。
@@ -132,10 +136,39 @@ mail（AckSource 加 agentSetIds；verifyAndTake 命中 agentSet 即匹配）。
 - **P1-5 审批签批**：方案 B 设计 spec 已定案（服务端见证+进程白名单+文本清洗+
   审计链），**代码实现列下一批**（协议帧+hub/approval.ts+设备浮窗+adapters 等待层）。
 
+## 「Agent 微信」M1 落地（2026-11-07，御驿-Agent微信-设计.md §7 M1 范围）
+
+Owner 直发通道全链路实现（设计三轮定稿：Owner 本人是发送主体，设备凭证即验证）：
+
+- **Hub（Yuyi 8060f5b + 5fdde7e）**：
+  - `hub/owner-direct.ts`：`synthesizeOwnerIdentity`（agentId=`owner:<ownerUserId>`
+    前缀、role=owner、permissions=[]）、`isOwnerDirectIdentity`（role+前缀双判，
+    御符 App 直连 owner 不误判）、广播拒绝（M1 限 1:1，OWNER_BROADCAST_DENIED）
+  - `router.resolveActor`：设备连接 send 无 from.agentId → 合成 Owner 主体
+    （不写 agentSet，每次发送合成）；roster/perm 表豁免（§2.2-2 Owner 凭证即授权）；
+    wake 权限检查豁免（permissions=[] 不降级 mail）；投递补合成会话
+    `sessionID=owner@<device>`（接收端零适配——wire 形态完整）
+  - `frame-schema`（5fdde7e E2E 修复）：message.from.sessionID 可选（Owner 无会话
+    概念）；send 帧顶层 from 显式声明——**P1-8 zod 层曾把设备连接的行动 Agent
+    声明剥掉**（回归，owner-direct-wire.test.ts 锚定）
+  - forgetInactive 列错位修复（from_device 在 payload JSON 不在 messages 表）
+- **daemon（yuyi-desk dc13c3229）**：`sendFromOwner`（hub.send 无 from.agentId）、
+  ConversationStore（conversations.json 索引+peer .jsonl 流水）、15s inbox 轮询
+  归组会话+ack、/api/yuyi/chat/{send,list,history,unread}
+- **app（yuyi-desk f2da2d1c5）**：Agents 页签（最近会话/在线目录/本机侧区）、
+  会话页（owner=BadgeCheck 琥珀最高优先级渲染，agent=Bot 灰）、侧栏 Agents 行、
+  i18n 9 语言；设计系统合规（withUnistyles 方案3/PressHighlight/ToolbarButton/
+  EditingTextInput handle 清稿）
+- **E2E（本地源 Hub 17377）**：ownerSend ok / 广播拒 / 接收端 wire
+  role=owner、agentId=owner:yufu:lisi、sessionID=owner@OWNER-E2E、name=我 透传。
+  ⚠ 生产 Hub（hub.qianji.io）需部署 5fdde7e 后 daemon 真实回路可用——
+  部署命令：`git pull && sudo bash deploy/smart-deploy.sh --force-restart`。
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原
 `E:\Development\Code\nodejs\yuyi-desk` 已归档为 `yuyi-desk.bak`）。
+
 - 主仓库 workspaces 已排除 `!packages/yuyi-desk`，两套 workspace 互不干扰；
 - submodule URL 暂为本机路径；建立远端后切换：
   `git submodule set-url packages/yuyi-desk <remote-url>`；

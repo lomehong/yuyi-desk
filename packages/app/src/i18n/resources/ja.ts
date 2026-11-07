@@ -6,14 +6,31 @@ export const ja: TranslationResources = {
     workbench: "Workbench",
     wechat: "WeChat",
   },
-  wechat: {
-    searchPlaceholder: "Search conversations…",
-    newChat: "New conversation",
-    emptyConversations: "No conversations yet — tap + to pick an online agent",
-    welcomeTitle: "Yuyi Agent WeChat",
-    welcomeSubtitle: "Talk to your agents directly, or start a new conversation from the directory",
-  },
+  wechat: en.wechat,
   agentChat: {
+    msg: {
+      sending: "Sending…",
+      processing: "Agent processing · {{seconds}}s",
+      processingTooltip: "Injected into the agent, waiting for its turn to finish",
+      delivered: "Delivered",
+      deliveredNoReply: "Delivered · no reply yet",
+      mailed: "Delivered to agent inbox · offline",
+      failed: "Failed · tap to retry",
+      injectFailed: "Not delivered · injection failed · tap to retry",
+      retry: "Retry",
+    },
+    peer: {
+      online: "online",
+      offline: "offline",
+      unknown: "unknown",
+      multiDevice: "online · {{count}} devices",
+    },
+    list: {
+      newMessages: "New messages ({{count}})",
+      failedBatch: "{{count}} messages failed · connection unavailable",
+      retryAll: "Retry all",
+    },
+
     online: "online",
     offline: "offline",
 
@@ -170,6 +187,8 @@ export const ja: TranslationResources = {
     },
   },
   composer: {
+    placeholder: "Message {{peer}} as you (Owner)…",
+    offlineHint: "Agent is offline — your message will be delivered to its inbox",
     placeholders: {
       desktop: "エージェントにメッセージ、@ファイル、/コマンドや/スキルを入力",
       mobile: "メッセージ、@ファイル、/コマンド",

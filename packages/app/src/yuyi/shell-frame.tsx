@@ -10,7 +10,7 @@
  * 用法（_layout.tsx）：以 YuyiShellFrame 包住原 workspaceChrome 的行；
  * YuyiShellTopbar 渲染顶栏（含侧栏开关）；YuyiContentCard 包内容区。
  */
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import { Image, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -20,7 +20,11 @@ import { WindowSidebarMenuToggle } from "@/components/headers/sidebar-menu-toggl
 import { WindowChromeRegion } from "@/utils/desktop-window";
 import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 import { ModeSwitch } from "@/components/wechat/mode-switch";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { topLevelModeStore } from "@/stores/wechat-mode-store";
+import { useHosts } from "@/runtime/host-runtime";
+import { createYuyiClient } from "@/yuyi/api";
+import { resolveNotificationPeer } from "@/yuyi/notification-route";
 import { router } from "expo-router";
 
 /** 卡片与容器边缘的缝宽（顶栏下方、右、下、内容与侧栏之间） */
@@ -65,9 +69,56 @@ export function YuyiSidebarToggle() {
   );
 }
 
+function useNotificationOpenRoute(): void {
+  const hosts = useHosts();
+  const host = hosts[0];
+  useEffect(() => {
+    if (!host || !isYuyiTauriShell()) return;
+    const listen = (
+      globalThis as Record<string, unknown> as {
+        __TAURI__?: {
+          event?: {
+            listen?: <T>(
+              name: string,
+              handler: (event: { payload: T }) => void,
+            ) => Promise<() => void>;
+          };
+        };
+      }
+    ).__TAURI__?.event?.listen;
+    if (!listen) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ peerKey?: string }>("yuyi:notification-open", (event) => {
+      const peerKey = event.payload.peerKey;
+      if (!peerKey) return;
+      void createYuyiClient(host)
+        .chats.fetchChatList()
+        .then((conversations) => {
+          const peer = resolveNotificationPeer(peerKey, conversations);
+          if (cancelled || !peer) return undefined;
+          topLevelModeStore.set("wechat");
+          topLevelModeStore.selectPeer(peer);
+          router.push(`/h/${host.serverId}/wechat` as never);
+          return undefined;
+        })
+        .catch(() => undefined);
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+      return undefined;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [host]);
+}
+
 /** 顶栏：左=侧栏开关 + 模式切换，右=窗口三键（DesktopWindowControls 由 _layout 绝对定位渲染） */
 export function YuyiShellTopbar() {
   const onPointerDown = useTopBarDrag();
+  useNotificationOpenRoute();
   const handleModeChange = useCallback((next: "workbench" | "wechat") => {
     topLevelModeStore.set(next);
     const host = resolveTopbarServerId();
@@ -80,10 +131,29 @@ export function YuyiShellTopbar() {
       router.push(`/h/${host}` as never);
     }
   }, []);
+  useKeyboardActionHandler({
+    handlerId: "yuyi-top-level-modes",
+    actions: ["mode.workbench", "mode.wechat"],
+    enabled: true,
+    priority: 100,
+    handle: (action) => {
+      if (action.id === "mode.workbench") {
+        handleModeChange("workbench");
+        return true;
+      }
+      if (action.id === "mode.wechat") {
+        handleModeChange("wechat");
+        return true;
+      }
+      return false;
+    },
+  });
   return (
     <View style={styles.topbar} onPointerDown={onPointerDown} testID="yuyi-topbar">
       <YuyiSidebarToggle />
-      <ModeSwitch onModeChange={handleModeChange} />
+      <View style={styles.modeSwitchSlot}>
+        <ModeSwitch onModeChange={handleModeChange} />
+      </View>
       <WindowSidebarMenuToggle
         testID="yuyi-sidebar-menu-toggle"
         nativeID="yuyi-sidebar-menu-toggle"
@@ -117,7 +187,11 @@ const styles = StyleSheet.create((theme) => ({
     height: YUYI_TOPBAR_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
+    gap: theme.spacing[1],
     backgroundColor: theme.colors.surfaceSidebar,
+  },
+  modeSwitchSlot: {
+    flexShrink: 0,
   },
   topbarSpacer: {
     flex: 1,

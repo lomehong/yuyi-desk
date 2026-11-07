@@ -52,6 +52,17 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+let observeExpanded = false;
+let observeTouched = false;
+let sidebarSearch = "";
+let directoryOpen = false;
+let directoryFilter = "";
+let searchFocusVersion = 0;
+
+function notifyListeners(): void {
+  for (const listener of listeners) listener();
+}
+
 export const topLevelModeStore = {
   get: () => mode,
   set: setMode,
@@ -66,6 +77,68 @@ export const topLevelModeStore = {
 
 export function useWeChatSelectedPeer(): WeChatSelectedPeer | null {
   return useSyncExternalStore(subscribe, () => selectedPeer);
+}
+
+export function useObserveExpanded(): boolean {
+  return useSyncExternalStore(subscribe, () => observeExpanded);
+}
+
+export const wechatUiStore = {
+  getObserveExpanded: () => observeExpanded,
+  setObserveExpanded(v: boolean): void {
+    observeTouched = true;
+    if (observeExpanded === v) return;
+    observeExpanded = v;
+    notifyListeners();
+  },
+  expandObserveForUnread(): void {
+    if (observeTouched || observeExpanded) return;
+    observeExpanded = true;
+    notifyListeners();
+  },
+  getSearch: () => sidebarSearch,
+  setSearch(q: string): void {
+    if (sidebarSearch === q) return;
+    sidebarSearch = q;
+    notifyListeners();
+  },
+  getDirectoryOpen: () => directoryOpen,
+  openDirectory(): void {
+    directoryOpen = true;
+    notifyListeners();
+  },
+  closeDirectory(): void {
+    if (!directoryOpen) return;
+    directoryOpen = false;
+    notifyListeners();
+  },
+  getDirectoryFilter: () => directoryFilter,
+  setDirectoryFilter(value: string): void {
+    if (directoryFilter === value) return;
+    directoryFilter = value;
+    notifyListeners();
+  },
+  getSearchFocusVersion: () => searchFocusVersion,
+  focusSearch(): void {
+    searchFocusVersion += 1;
+    notifyListeners();
+  },
+};
+
+export function useSidebarSearch(): string {
+  return useSyncExternalStore(subscribe, () => sidebarSearch);
+}
+
+export function useDirectoryOpen(): boolean {
+  return useSyncExternalStore(subscribe, () => directoryOpen);
+}
+
+export function useDirectoryFilter(): string {
+  return useSyncExternalStore(subscribe, () => directoryFilter);
+}
+
+export function useSearchFocusVersion(): number {
+  return useSyncExternalStore(subscribe, () => searchFocusVersion);
 }
 
 export function useTopLevelMode(): AppTopLevelMode {

@@ -42,7 +42,15 @@ export interface ChatMessage {
   /** 关联 Hub 消息 id（out=发送 id，in=inbox 条目 id；本地补偿消息可缺省） */
   hubId?: string;
   /** 投递回执快照（out 向：send ack 的 ok/detail；降级 mail 时注明） */
-  ack?: { ok: boolean; detail?: string };
+  ack?: {
+    ok: boolean;
+    detail?: string;
+    delivery?: "injected" | "mailed" | "delivered" | "failed";
+  };
+  /** 协议引用链（autoReply 回信/收件箱 wire 自带；历史消息无此字段不渲染） */
+  replyTo?: string;
+  /** 任务段 id（observe 回合分组用；无则归「未关联任务」） */
+  taskId?: string;
 }
 
 /** 会话索引条目 */
@@ -51,6 +59,10 @@ export interface ConversationEntry {
   lastAt: number;
   lastText: string;
   unread: number;
+  /** 末条方向（列表行「我:」前缀与状态微标用） */
+  lastDir?: "out" | "in";
+  /** 末条出向投递快照（列表行状态微标：处理中/失败等） */
+  lastAck?: { ok: boolean; detail?: string };
 }
 
 const MAX_MSG_TEXT = 8_000; // 单条正文截断（防异常大消息撑爆索引/文件）
@@ -142,6 +154,9 @@ export class ConversationStore {
       lastAt: msg.at,
       lastText: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       unread: (prev?.unread ?? 0) + (msg.dir === "in" ? 1 : 0),
+      // 列表行状态层（「我:」前缀 + 出向状态微标）：入向后出向状态即过时，置空
+      lastDir: msg.dir,
+      lastAck: msg.dir === "out" ? msg.ack : undefined,
     });
     this.scheduleFlush();
   }

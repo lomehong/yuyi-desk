@@ -1,404 +1,593 @@
-/**
- * 「Agent 微信」模式 UI（设计 2026-11 重构）：
- * - WeChatSidebar：侧栏形态（搜索 / ＋发起新会话 / 我的会话 / Agent 会话旁观折叠），
- *   由 LeftSidebar 在 mode=wechat 时整体替换工作区列表；
- * - WeChatMain：主区（选中会话 or 品牌欢迎页），路由 /h/:serverId/wechat 渲染；
- * - selectedPeer 在 wechat-mode-store（左栏 ↔ 主区共享，切模式保留）；
- * - 目录只在「发起新会话」时弹出（决策点②）。
- */
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { Modal, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Image, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
-  Bot as BotIcon,
+  AlertTriangle,
+  ChevronDown,
   Eye as EyeIcon,
   MessageSquarePlus as PlusIcon,
+  RefreshCw,
   Search as SearchIcon,
-  Users as UsersIcon,
 } from "lucide-react-native";
-
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
-import { EditingTextInput } from "@/components/ui/text-input";
+import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { AgentChatScreen } from "@/screens/agent-chat-screen";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useHosts } from "@/runtime/host-runtime";
-import { createYuyiClient, type YuyiChatEntry, type YuyiPeersEntry } from "@/yuyi/api";
-import { useWeChatSelectedPeer, topLevelModeStore } from "@/stores/wechat-mode-store";
+import type { YuyiChatEntry } from "@/yuyi/api";
+import {
+  useDirectoryFilter,
+  useDirectoryOpen,
+  useObserveExpanded,
+  useSearchFocusVersion,
+  useSidebarSearch,
+  useTopLevelMode,
+  useWeChatSelectedPeer,
+  topLevelModeStore,
+  wechatUiStore,
+} from "@/stores/wechat-mode-store";
+import { useWeChatData } from "@/stores/wechat-data-store";
+import { classifyDelivery } from "@/yuyi/delivery-states";
 import type { Theme } from "@/styles/theme";
+import { DirectoryOverlay } from "./directory-overlay";
+import { AgentAvatar } from "./agent-avatar";
+import {
+  buildDirectoryGroups,
+  formatUnreadCount,
+  groupAgentRows,
+  searchConversationsAndAgents,
+  type AgentConversationRow,
+  type DirectoryEntry,
+} from "./wechat-model";
 
-const ThemedBot = withUnistyles(BotIcon);
 const ThemedEye = withUnistyles(EyeIcon);
-const ThemedUsers = withUnistyles(UsersIcon);
 const ThemedSearch = withUnistyles(SearchIcon);
 const ThemedPlus = withUnistyles(PlusIcon);
+const ThemedChevron = withUnistyles(ChevronDown);
+const ThemedWarning = withUnistyles(AlertTriangle);
+const ThemedRefresh = withUnistyles(RefreshCw);
+const mutedIcon = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
+const amberIcon = (theme: Theme) => ({ color: theme.colors.palette.amber[500] });
+const accentForegroundIcon = (theme: Theme) => ({ color: theme.colors.accentForeground });
 
-const MUTED_ICON = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
-const AMBER_ICON = (theme: Theme) => ({ color: theme.colors.palette.amber[500] });
-const ACCENT_FG_ICON = (theme: Theme) => ({ color: theme.colors.accentForeground });
+type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-interface ChatRow {
-  key: string;
-  title: string;
-  kind: "owner" | "agent" | "observe";
-  subtitle?: string;
-  unread: number;
-  lastAt: number;
+function relativeTime(at: number, t: Translate): string {
+  const diff = Math.max(0, Date.now() - at);
+  if (diff < 60_000) return t("wechat.time.now");
+  if (diff < 3_600_000) return t("wechat.time.minutes", { count: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t("wechat.time.hours", { count: Math.floor(diff / 3_600_000) });
+  if (diff < 172_800_000) return t("wechat.time.yesterday");
+  return new Intl.DateTimeFormat(undefined, { month: "numeric", day: "numeric" }).format(at);
 }
 
-interface DirectoryEntry {
-  key: string;
-  title: string;
-  subtitle: string;
+function deliveryMark(entry: YuyiChatEntry): string {
+  if (entry.lastDir !== "out" || !entry.lastAck) return "";
+  switch (classifyDelivery(entry.lastAck)) {
+    case "injected":
+      return " ···";
+    case "mailed":
+      return " ✉";
+    case "failed":
+      return " ✗";
+    default:
+      return " ✓";
+  }
 }
 
-function relativeTime(at: number): string {
-  const diff = Date.now() - at;
-  if (diff < 60_000) return "now";
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`;
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h`;
-  return `${Math.floor(diff / 86400_000)}d`;
-}
-
-/** 行首身份图标：owner=琥珀 Users / observe=Eye / agent=Bot（早返回拆三元） */
-function RowAvatar({ kind }: { kind: ChatRow["kind"] }): ReactElement {
-  if (kind === "owner") return <ThemedUsers size={16} uniProps={AMBER_ICON} />;
-  if (kind === "observe") return <ThemedEye size={14} uniProps={MUTED_ICON} />;
-  return <ThemedBot size={16} uniProps={MUTED_ICON} />;
-}
-
-/** 左栏/主区共享的会话数据 hook（15s 轮询） */
-function useWeChatData() {
-  const hosts = useHosts();
-  const client = useMemo(() => {
-    const host = hosts[0];
-    return host ? createYuyiClient(host) : null;
-  }, [hosts]);
-
-  const [conversations, setConversations] = useState<YuyiChatEntry[]>([]);
-  const [peers, setPeers] = useState<YuyiPeersEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    const results = await Promise.allSettled([client.chats.fetchChatList(), client.fetchPeers()]);
-    if (results[0].status === "fulfilled") setConversations(results[0].value);
-    if (results[1].status === "fulfilled") setPeers(results[1].value);
-    const failed = results.find((r) => r.status === "rejected");
-    setError(failed ? String((failed as PromiseRejectedResult).reason) : null);
-  }, [client]);
-
-  useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), 15_000);
-    return () => clearInterval(timer);
-  }, [refresh]);
-
-  const directoryEntries = useMemo<DirectoryEntry[]>(() => {
-    if (!peers) return [];
-    const seen = new Set<string>();
-    const entries: DirectoryEntry[] = [];
-    for (const p of peers) {
-      for (const sess of p.sessions) {
-        const key = p.agentId && sess.name ? `${p.agentId}:${sess.name}` : sess.sessionID;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        entries.push({ key, title: sess.name ?? sess.sessionID, subtitle: p.device });
-      }
-    }
-    return entries;
-  }, [peers]);
-
-  return { conversations, directoryEntries, error, refresh };
-}
-
-function useChatRows(conversations: YuyiChatEntry[], search: string) {
-  const rows = useMemo<ChatRow[]>(
-    () =>
-      conversations.map((c) => ({
-        key: c.peer.key,
-        title: c.peer.title,
-        kind: c.peer.kind,
-        subtitle: c.lastText,
-        unread: c.unread,
-        lastAt: c.lastAt,
-      })),
-    [conversations],
-  );
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) => r.title.toLowerCase().includes(q) || (r.subtitle ?? "").toLowerCase().includes(q),
-    );
-  }, [rows, search]);
-  const chatRows = useMemo(() => filteredRows.filter((r) => r.kind !== "observe"), [filteredRows]);
-  const observeRows = useMemo(
-    () => filteredRows.filter((r) => r.kind === "observe"),
-    [filteredRows],
-  );
-  return { chatRows, observeRows };
-}
-
-function ChatRowItem({
+function AgentRowItem({
   row,
-  active,
-  onPress,
+  activeKey,
+  expanded,
+  online,
+  onOpen,
+  onToggle,
 }: {
-  row: ChatRow;
-  active: boolean;
-  onPress: (row: ChatRow) => void;
+  row: AgentConversationRow;
+  activeKey?: string;
+  expanded: boolean;
+  online: boolean;
+  onOpen: (entry: YuyiChatEntry) => void;
+  onToggle: (agentId: string) => void;
 }): ReactElement {
-  const handlePress = useCallback(() => onPress(row), [onPress, row]);
-  const rowStyle = useMemo(() => [styles.chatRow, active && styles.chatRowActive], [active]);
+  const { t } = useTranslation();
+  const representative = row.sessions[0]!;
+  const active = row.sessions.some((session) => session.peer.key === activeKey);
+  const handleOpen = useCallback(() => onOpen(representative), [onOpen, representative]);
+  const handleToggle = useCallback(() => onToggle(row.agentId), [onToggle, row.agentId]);
+  const accessibilityState = useMemo(() => ({ selected: active }), [active]);
+  const chevronStyle = useMemo(
+    () => ({ transform: [{ rotate: expanded ? "180deg" : "0deg" }] }),
+    [expanded],
+  );
   return (
-    <PressHighlight
-      onPress={handlePress}
-      style={rowStyle}
-      highlightStyle={styles.chatRowActive}
-      accessibilityLabel={row.title}
-    >
-      <View style={styles.chatRowInner}>
-        <RowAvatar kind={row.kind} />
+    <View style={styles.agentGroup}>
+      <PressHighlight
+        style={[styles.chatRow, (active || row.unread > 0) && styles.unreadRow]}
+        highlightStyle={styles.chatRowHover}
+        onPress={handleOpen}
+        accessibilityRole="button"
+        accessibilityState={accessibilityState}
+        accessibilityLabel={row.title}
+      >
+        {row.unread > 0 ? <View style={styles.unreadStrip} /> : null}
+        <AgentAvatar kind={row.kind} />
         <View style={styles.chatRowMain}>
           <View style={styles.chatRowTop}>
             <Text style={styles.chatRowTitle} numberOfLines={1}>
               {row.title}
             </Text>
-            <Text style={styles.chatRowTime}>{relativeTime(row.lastAt)}</Text>
+            <Text style={styles.chatRowTime}>{relativeTime(row.lastAt, t)}</Text>
           </View>
           <View style={styles.chatRowBottom}>
             <Text style={styles.chatRowSub} numberOfLines={1}>
-              {row.subtitle ?? ""}
+              {representative.lastDir === "out" ? t("wechat.mePrefix") : ""}
+              {row.subtitle}
+              {deliveryMark(representative)}
             </Text>
             {row.unread > 0 ? (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{row.unread}</Text>
+                <Text style={styles.badgeText}>{formatUnreadCount(row.unread)}</Text>
               </View>
             ) : null}
           </View>
         </View>
+        {online ? <View style={styles.onlineDot} /> : null}
+        {row.sessions.length > 1 ? (
+          <ToolbarButton
+            label={expanded ? t("wechat.collapseSessions") : t("wechat.expandSessions")}
+            onPress={handleToggle}
+          >
+            <ThemedChevron size={14} uniProps={mutedIcon} style={chevronStyle} />
+          </ToolbarButton>
+        ) : null}
+      </PressHighlight>
+      {expanded
+        ? row.sessions
+            .slice(1)
+            .map((session) => (
+              <AgentSessionRow
+                key={session.peer.key}
+                session={session}
+                activeKey={activeKey}
+                onOpen={onOpen}
+              />
+            ))
+        : null}
+    </View>
+  );
+}
+
+/** 展开后的单个会话子行：回调与 accessibilityState 都在本组件内稳定化 */
+function AgentSessionRow({
+  session,
+  activeKey,
+  onOpen,
+}: {
+  session: YuyiChatEntry;
+  activeKey?: string;
+  onOpen: (entry: YuyiChatEntry) => void;
+}): ReactElement {
+  const handleOpen = useCallback(() => onOpen(session), [onOpen, session]);
+  const selected = activeKey === session.peer.key;
+  const accessibilityState = useMemo(() => ({ selected }), [selected]);
+  return (
+    <PressHighlight
+      style={styles.sessionRow}
+      onPress={handleOpen}
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+    >
+      <Text style={styles.sessionName} numberOfLines={1}>
+        {session.peer.key.split(":").at(-1)}
+      </Text>
+      {session.unread > 0 ? (
+        <Text style={styles.sessionUnread}>{formatUnreadCount(session.unread)}</Text>
+      ) : null}
+    </PressHighlight>
+  );
+}
+
+function ObserveRow({
+  entry,
+  active,
+  onPress,
+}: {
+  entry: YuyiChatEntry;
+  active: boolean;
+  onPress: (entry: YuyiChatEntry) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handlePress = useCallback(() => onPress(entry), [entry, onPress]);
+  const accessibilityState = useMemo(() => ({ selected: active }), [active]);
+  return (
+    <PressHighlight
+      style={[styles.chatRow, styles.observeRow]}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+    >
+      <AgentAvatar kind="observe" />
+      <View style={styles.chatRowMain}>
+        <Text style={styles.chatRowTitle} numberOfLines={1}>
+          {entry.peer.title}
+        </Text>
+        <Text style={styles.chatRowSub} numberOfLines={1}>
+          {entry.lastText}
+        </Text>
+      </View>
+      {entry.unread > 0 ? <View style={styles.observeUnreadDot} /> : null}
+      <Text style={styles.chatRowTime}>{relativeTime(entry.lastAt, t)}</Text>
+    </PressHighlight>
+  );
+}
+
+/** 旁观区分组头：展开/收起、计数与未读点；回调与 accessibilityState 在组件内稳定化 */
+function ObserveGroupHeader({
+  expanded,
+  count,
+  unread,
+  onToggleExpanded,
+}: {
+  expanded: boolean;
+  count: number;
+  unread: number;
+  onToggleExpanded: (next: boolean) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handleToggle = useCallback(() => onToggleExpanded(!expanded), [expanded, onToggleExpanded]);
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  const chevronStyle = useMemo(
+    () => ({ transform: [{ rotate: expanded ? "180deg" : "0deg" }] }),
+    [expanded],
+  );
+  return (
+    <PressHighlight
+      style={styles.groupHeader}
+      onPress={handleToggle}
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+    >
+      <ThemedEye size={12} uniProps={mutedIcon} />
+      <Text style={styles.groupTitle}>
+        {t("agentChat.observe")}（{count}）
+      </Text>
+      {unread > 0 ? <View style={styles.observeUnreadDot} /> : null}
+      <ThemedChevron size={13} uniProps={mutedIcon} style={chevronStyle} />
+    </PressHighlight>
+  );
+}
+
+function SearchResultRow({
+  entry,
+  onOpen,
+}: {
+  entry: YuyiChatEntry;
+  onOpen: (entry: YuyiChatEntry) => void;
+}) {
+  const handlePress = useCallback(() => onOpen(entry), [entry, onOpen]);
+  return (
+    <PressHighlight style={styles.searchResult} onPress={handlePress} accessibilityRole="button">
+      <AgentAvatar kind={entry.peer.kind} size={28} />
+      <View style={styles.chatRowMain}>
+        <Text style={styles.chatRowTitle} numberOfLines={1}>
+          {entry.peer.title}
+        </Text>
+        <Text style={styles.chatRowSub} numberOfLines={1}>
+          {entry.lastText}
+        </Text>
       </View>
     </PressHighlight>
   );
 }
 
-/* ---------------- 侧栏形态（LeftSidebar 在 mode=wechat 时渲染） ---------------- */
+function AgentSearchResultRow({
+  entry,
+  onOpen,
+}: {
+  entry: DirectoryEntry;
+  onOpen: (entry: DirectoryEntry) => void;
+}) {
+  const handlePress = useCallback(() => onOpen(entry), [entry, onOpen]);
+  return (
+    <PressHighlight style={styles.searchResult} onPress={handlePress} accessibilityRole="button">
+      <AgentAvatar kind={entry.kind} size={28} />
+      <View style={styles.chatRowMain}>
+        <Text style={styles.chatRowTitle} numberOfLines={1}>
+          {entry.title}
+        </Text>
+        <Text style={styles.chatRowSub} numberOfLines={1}>
+          {entry.subtitle}
+        </Text>
+      </View>
+    </PressHighlight>
+  );
+}
 
 export function WeChatSidebar(): ReactElement {
   const { t } = useTranslation();
-  const [search, setSearch] = useState("");
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [observeExpanded, setObserveExpanded] = useState(false);
-  const { conversations, directoryEntries, error } = useWeChatData();
+  const search = useSidebarSearch();
+  const observeExpanded = useObserveExpanded();
+  const searchFocusVersion = useSearchFocusVersion();
+  const searchRef = useRef<EditingTextInputHandle>(null);
+  const { conversations, peers, error, refresh } = useWeChatData();
   const selectedPeer = useWeChatSelectedPeer();
-  const { chatRows, observeRows } = useChatRows(conversations, search);
+  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const agentRows = useMemo(() => groupAgentRows(conversations), [conversations]);
+  const observeRows = useMemo(
+    () => conversations.filter((entry) => entry.peer.kind === "observe"),
+    [conversations],
+  );
+  const searchResults = useMemo(
+    () => searchConversationsAndAgents(search, conversations, peers),
+    [conversations, peers, search],
+  );
+  const hasSearch = search.trim().length > 0;
+  const observeUnread = observeRows.reduce((total, entry) => total + entry.unread, 0);
 
-  const openNewChatDialog = useCallback(() => {
-    setDirectoryOpen(true);
+  useEffect(() => {
+    if (observeUnread > 0) wechatUiStore.expandObserveForUnread();
+  }, [observeUnread]);
+  useEffect(() => {
+    if (searchFocusVersion > 0) searchRef.current?.focus();
+  }, [searchFocusVersion]);
+  useEffect(() => {
+    if (!search) searchRef.current?.reset();
+  }, [search]);
+
+  const openChat = useCallback((entry: YuyiChatEntry) => {
+    topLevelModeStore.selectPeer({ ...entry.peer });
+    wechatUiStore.setSearch("");
   }, []);
-  const closeNewChatDialog = useCallback(() => {
-    setDirectoryOpen(false);
+  const openAgent = useCallback((entry: DirectoryEntry) => {
+    if (!entry.key || entry.disabled) return;
+    topLevelModeStore.selectPeer({ key: entry.key, title: entry.title, kind: entry.kind });
+    wechatUiStore.setSearch("");
   }, []);
-  const toggleObserve = useCallback(() => {
-    setObserveExpanded((v) => !v);
+  const toggleAgent = useCallback((agentId: string) => {
+    setExpandedAgents((current) => {
+      const next = new Set(current);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
   }, []);
-  const openChat = useCallback((row: ChatRow) => {
-    topLevelModeStore.selectPeer({ key: row.key, title: row.title, kind: row.kind });
-  }, []);
-  const openDirectoryEntry = useCallback((entry: DirectoryEntry) => {
-    setDirectoryOpen(false);
-    topLevelModeStore.selectPeer({ key: entry.key, title: entry.title, kind: "agent" });
-  }, []);
+  const onSearchKey = useCallback(
+    (event: { nativeEvent?: { key?: string } }) => {
+      if (event.nativeEvent?.key !== "Escape") return;
+      if (search) wechatUiStore.setSearch("");
+      else searchRef.current?.blur();
+    },
+    [search],
+  );
 
   return (
     <View style={styles.sidebar}>
       <View style={styles.searchRow}>
-        <ThemedSearch size={14} uniProps={MUTED_ICON} />
-        <EditingTextInput
-          style={styles.searchInput}
-          initialValue=""
-          onChangeText={setSearch}
-          placeholder={t("wechat.searchPlaceholder")}
-        />
-        <ToolbarButton label={t("wechat.newChat")} onPress={openNewChatDialog} round>
-          <ThemedPlus size={15} uniProps={ACCENT_FG_ICON} />
-        </ToolbarButton>
+        <View style={styles.searchPill}>
+          <ThemedSearch size={14} uniProps={mutedIcon} />
+          <EditingTextInput
+            ref={searchRef}
+            style={styles.searchInput}
+            initialValue={search}
+            onChangeText={wechatUiStore.setSearch}
+            onKeyPress={onSearchKey}
+            placeholder={t("wechat.searchPlaceholder")}
+          />
+        </View>
+        <View style={styles.newChatButton}>
+          <ToolbarButton
+            label={t("wechat.contactAgent")}
+            onPress={wechatUiStore.openDirectory}
+            round
+          >
+            <ThemedPlus size={15} uniProps={accentForegroundIcon} />
+          </ToolbarButton>
+        </View>
       </View>
-
       <ScrollView style={styles.listScroll} contentContainerStyle={styles.listContent}>
-        <Text style={styles.groupTitle}>{t("agentChat.recent")}</Text>
-        {chatRows.length === 0 ? (
-          <Text style={styles.emptyHint}>{t("wechat.emptyConversations")}</Text>
+        {hasSearch ? (
+          <View style={styles.searchResults}>
+            <Text style={styles.groupTitle}>
+              {t("wechat.conversationResults", { count: searchResults.conversations.length })}
+            </Text>
+            {searchResults.conversations.map((entry) => (
+              <SearchResultRow key={entry.peer.key} entry={entry} onOpen={openChat} />
+            ))}
+            <Text style={styles.groupTitle}>
+              {t("wechat.agentResults", { count: searchResults.agents.length })}
+            </Text>
+            {searchResults.agents.map((entry) => (
+              <AgentSearchResultRow key={entry.id} entry={entry} onOpen={openAgent} />
+            ))}
+            {searchResults.conversations.length + searchResults.agents.length === 0 ? (
+              <PressHighlight
+                style={styles.searchEmpty}
+                onPress={wechatUiStore.openDirectory}
+                accessibilityRole="button"
+              >
+                <Text style={styles.emptyHint}>{t("wechat.noSearchResults")}</Text>
+              </PressHighlight>
+            ) : null}
+          </View>
         ) : (
-          chatRows.map((r) => (
-            <ChatRowItem
-              key={r.key}
-              row={r}
-              active={selectedPeer?.key === r.key}
-              onPress={openChat}
-            />
-          ))
-        )}
-
-        {observeRows.length > 0 ? (
           <>
-            <PressHighlight
-              style={styles.groupHeader}
-              onPress={toggleObserve}
-              accessibilityRole="button"
-            >
-              <ThemedEye size={12} uniProps={MUTED_ICON} />
-              <Text style={styles.groupTitle}>
-                {t("agentChat.observe")}（{observeRows.length}）
-              </Text>
-              <Text style={styles.expandCaret}>{observeExpanded ? "▾" : "▸"}</Text>
-            </PressHighlight>
-            {(observeExpanded ? observeRows : []).map((r) => (
-              <ChatRowItem
-                key={r.key}
-                row={r}
-                active={selectedPeer?.key === r.key}
-                onPress={openChat}
+            <Text style={styles.groupTitle}>{t("agentChat.recent")}</Text>
+            {agentRows.length === 0 ? (
+              <Text style={styles.emptyHint}>{t("wechat.emptyConversations")}</Text>
+            ) : null}
+            {agentRows.map((row) => (
+              <AgentRowItem
+                key={`${row.kind}:${row.agentId}`}
+                row={row}
+                activeKey={selectedPeer?.key}
+                expanded={expandedAgents.has(row.agentId)}
+                online={Boolean(peers?.some((peer) => peer.agentId === row.agentId))}
+                onOpen={openChat}
+                onToggle={toggleAgent}
               />
             ))}
+            {observeRows.length > 0 ? (
+              <>
+                <ObserveGroupHeader
+                  expanded={observeExpanded}
+                  count={observeRows.length}
+                  unread={observeUnread}
+                  onToggleExpanded={wechatUiStore.setObserveExpanded}
+                />
+                {observeExpanded
+                  ? observeRows.map((entry) => (
+                      <ObserveRow
+                        key={entry.peer.key}
+                        entry={entry}
+                        active={selectedPeer?.key === entry.peer.key}
+                        onPress={openChat}
+                      />
+                    ))
+                  : null}
+              </>
+            ) : null}
           </>
-        ) : null}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        )}
       </ScrollView>
-
-      <DirectoryModal
-        visible={directoryOpen}
-        entries={directoryEntries}
-        onClose={closeNewChatDialog}
-        onPick={openDirectoryEntry}
-      />
+      {error ? (
+        <View style={styles.errorBar}>
+          <ThemedWarning size={14} uniProps={amberIcon} />
+          <Text style={styles.errorText} numberOfLines={1}>
+            {t(error)}
+          </Text>
+          <ToolbarButton label={t("agentChat.msg.retry")} onPress={refresh}>
+            <ThemedRefresh size={14} uniProps={mutedIcon} />
+          </ToolbarButton>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-/* ---------------- 主区（/h/:serverId/wechat 路由渲染） ---------------- */
+/** 会话循环移动的下一个下标：未选中时从头/尾进入，选中后按 delta 环绕 */
+function nextConversationIndex(currentIndex: number, delta: 1 | -1, length: number): number {
+  if (currentIndex < 0) return delta > 0 ? 0 : length - 1;
+  return (currentIndex + delta + length) % length;
+}
 
 export function WeChatMain(): ReactElement {
   const { t } = useTranslation();
   const hosts = useHosts();
   const serverId = hosts[0]?.serverId ?? "";
   const selectedPeer = useWeChatSelectedPeer();
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const { directoryEntries } = useWeChatData();
-
-  const openNewChatDialog = useCallback(() => {
-    setDirectoryOpen(true);
-  }, []);
-  const closeNewChatDialog = useCallback(() => {
-    setDirectoryOpen(false);
-  }, []);
+  const mode = useTopLevelMode();
+  const sidebarSearch = useSidebarSearch();
+  const directoryOpen = useDirectoryOpen();
+  const directoryFilter = useDirectoryFilter();
+  const { conversations, peers, status } = useWeChatData();
+  const directoryGroups = useMemo(
+    () => buildDirectoryGroups(peers, status, conversations),
+    [conversations, peers, status],
+  );
   const openDirectoryEntry = useCallback((entry: DirectoryEntry) => {
-    setDirectoryOpen(false);
-    topLevelModeStore.selectPeer({ key: entry.key, title: entry.title, kind: "agent" });
+    if (!entry.key || entry.disabled) return;
+    topLevelModeStore.selectPeer({ key: entry.key, title: entry.title, kind: entry.kind });
+    wechatUiStore.closeDirectory();
   }, []);
-
-  if (!selectedPeer) {
-    return (
-      <View style={styles.welcome}>
-        <Text style={styles.welcomeTitle}>{t("wechat.welcomeTitle")}</Text>
-        <Text style={styles.welcomeSubtitle}>{t("wechat.welcomeSubtitle")}</Text>
-        <PressHighlight
-          style={styles.welcomeCta}
-          onPress={openNewChatDialog}
-          accessibilityRole="button"
-        >
-          <View style={styles.welcomeCtaInner}>
-            <ThemedUsers size={15} uniProps={AMBER_ICON} />
-            <Text style={styles.welcomeCtaText}>{t("wechat.newChat")}</Text>
-          </View>
-        </PressHighlight>
-        <DirectoryModal
-          visible={directoryOpen}
-          entries={directoryEntries}
-          onClose={closeNewChatDialog}
-          onPick={openDirectoryEntry}
-        />
-      </View>
-    );
-  }
+  const moveConversation = useCallback(
+    (delta: 1 | -1) => {
+      const rows = conversations.filter((entry) => entry.peer.kind !== "observe");
+      if (rows.length === 0) return;
+      const currentIndex = rows.findIndex((entry) => entry.peer.key === selectedPeer?.key);
+      const nextIndex = nextConversationIndex(currentIndex, delta, rows.length);
+      const next = rows[nextIndex]!;
+      topLevelModeStore.selectPeer({ ...next.peer });
+    },
+    [conversations, selectedPeer?.key],
+  );
+  useKeyboardActionHandler({
+    handlerId: "wechat-main",
+    actions: [
+      "wechat.search.focus",
+      "wechat.new-chat",
+      "wechat.escape",
+      "wechat.conv.next",
+      "wechat.conv.prev",
+    ],
+    enabled: mode === "wechat",
+    priority: 100,
+    handle: (action) => {
+      if (action.id === "wechat.search.focus") {
+        wechatUiStore.focusSearch();
+        return true;
+      }
+      if (action.id === "wechat.new-chat") {
+        wechatUiStore.openDirectory();
+        return true;
+      }
+      if (action.id === "wechat.escape") {
+        if (directoryOpen) {
+          wechatUiStore.closeDirectory();
+          return true;
+        }
+        if (sidebarSearch) {
+          wechatUiStore.setSearch("");
+          return true;
+        }
+        if (typeof HTMLElement !== "undefined" && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+          return true;
+        }
+        return false;
+      }
+      if (action.id === "wechat.conv.next") {
+        moveConversation(1);
+        return true;
+      }
+      if (action.id === "wechat.conv.prev") {
+        moveConversation(-1);
+        return true;
+      }
+      return false;
+    },
+  });
 
   return (
     <View style={styles.mainFill}>
-      <AgentChatScreen
-        serverId={serverId}
-        peerKey={selectedPeer.key}
-        title={selectedPeer.title}
-        kind={selectedPeer.kind}
+      {selectedPeer ? (
+        <AgentChatScreen
+          serverId={serverId}
+          peerKey={selectedPeer.key}
+          title={selectedPeer.title}
+          kind={selectedPeer.kind}
+        />
+      ) : (
+        <View style={styles.welcome}>
+          <Image
+            source={require("../../../assets/images/yuyi-logo.png")}
+            resizeMode="contain"
+            style={styles.welcomeLogo}
+          />
+          <Text style={styles.welcomeTitle}>{t("wechat.welcomeTitle")}</Text>
+          <Text style={styles.welcomeSubtitle}>{t("wechat.welcomeSubtitle")}</Text>
+          <PressHighlight
+            style={styles.welcomeCta}
+            highlightStyle={styles.welcomeCtaPressed}
+            onPress={wechatUiStore.openDirectory}
+            accessibilityRole="button"
+          >
+            <ThemedPlus size={16} uniProps={accentForegroundIcon} />
+            <Text style={styles.welcomeCtaText}>{t("wechat.contactAgent")}</Text>
+          </PressHighlight>
+        </View>
+      )}
+      <DirectoryOverlay
+        visible={directoryOpen}
+        groups={directoryGroups}
+        filter={directoryFilter}
+        onFilterChange={wechatUiStore.setDirectoryFilter}
+        onPick={openDirectoryEntry}
+        onClose={wechatUiStore.closeDirectory}
       />
     </View>
-  );
-}
-
-function DirectoryModal({
-  visible,
-  entries,
-  onClose,
-  onPick,
-}: {
-  visible: boolean;
-  entries: DirectoryEntry[];
-  onClose: () => void;
-  onPick: (entry: DirectoryEntry) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <View style={styles.modalHeader}>
-            <ThemedUsers size={14} uniProps={MUTED_ICON} />
-            <Text style={styles.modalTitle}>{t("agentChat.directory")}</Text>
-            <ToolbarButton label={t("common.actions.close")} onPress={onClose}>
-              <Text style={styles.modalCloseGlyph}>✕</Text>
-            </ToolbarButton>
-          </View>
-          <ScrollView style={styles.modalScroll}>
-            {entries.length === 0 ? (
-              <Text style={styles.emptyHint}>{t("agentChat.noDirectory")}</Text>
-            ) : (
-              entries.map((entry) => <DirectoryRow key={entry.key} entry={entry} onPick={onPick} />)
-            )}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function DirectoryRow({
-  entry,
-  onPick,
-}: {
-  entry: DirectoryEntry;
-  onPick: (entry: DirectoryEntry) => void;
-}): ReactElement {
-  const handlePress = useCallback(() => onPick(entry), [entry, onPick]);
-  const rowStyle = useMemo(() => styles.dirRow, []);
-  return (
-    <PressHighlight
-      onPress={handlePress}
-      style={rowStyle}
-      highlightStyle={styles.dirRowPressed}
-      accessibilityLabel={entry.title}
-    >
-      <View style={styles.dirRowInner}>
-        <ThemedBot size={15} uniProps={MUTED_ICON} />
-        <View style={styles.dirRowText}>
-          <Text style={styles.dirRowTitle} numberOfLines={1}>
-            {entry.title}
-          </Text>
-          <Text style={styles.dirRowSub} numberOfLines={1}>
-            {entry.subtitle}
-          </Text>
-        </View>
-      </View>
-    </PressHighlight>
   );
 }
 
@@ -407,18 +596,32 @@ const styles = StyleSheet.create((theme) => ({
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: theme.spacing[2],
     padding: theme.spacing[2],
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
   },
-  searchInput: { flex: 1, minHeight: 30, color: theme.colors.foreground, paddingVertical: 4 },
+  searchPill: {
+    flex: 1,
+    height: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    backgroundColor: theme.colors.surface3,
+    borderRadius: theme.borderRadius.full,
+    paddingHorizontal: theme.spacing[3],
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  newChatButton: { backgroundColor: theme.colors.accent, borderRadius: theme.borderRadius.full },
   listScroll: { flex: 1 },
   listContent: { paddingBottom: theme.spacing[6] },
   groupTitle: {
     color: theme.colors.foregroundMuted,
-    fontSize: 11,
-    fontWeight: theme.fontWeight.semibold,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
     paddingHorizontal: theme.spacing[3],
     paddingTop: theme.spacing[3],
     paddingBottom: theme.spacing[1],
@@ -426,124 +629,157 @@ const styles = StyleSheet.create((theme) => ({
   groupHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: theme.spacing[3],
-    paddingTop: theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
+    gap: theme.spacing[2],
+    paddingRight: theme.spacing[3],
     marginHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.lg,
   },
-  expandCaret: { color: theme.colors.foregroundMuted, fontSize: 11 },
   emptyHint: {
     color: theme.colors.foregroundExtraMuted,
-    fontSize: 12,
+    fontSize: theme.fontSize.sm,
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
   },
-  errorText: { color: theme.colors.palette.red[500], fontSize: 11, padding: theme.spacing[2] },
+  agentGroup: { marginBottom: theme.spacing[1] },
   chatRow: {
     marginHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-  },
-  chatRowActive: { backgroundColor: theme.colors.surface2 },
-  chatRowInner: {
+    borderRadius: theme.borderRadius.lg,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-    paddingVertical: 9,
+    gap: theme.spacing[3],
+    paddingVertical: theme.spacing[3],
     paddingHorizontal: theme.spacing[2],
+    position: "relative",
+  },
+  chatRowHover: { backgroundColor: theme.colors.surfaceSidebarHover },
+  unreadRow: { backgroundColor: theme.colors.surfaceSidebarSelected },
+  unreadStrip: {
+    position: "absolute",
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 2,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.palette.amber[500],
   },
   chatRowMain: { flex: 1, minWidth: 0 },
-  chatRowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  chatRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+  },
   chatRowTitle: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
-    flex: 1,
-    marginRight: 8,
+    fontWeight: theme.fontWeight.normal,
+    flexShrink: 1,
   },
-  chatRowTime: { color: theme.colors.foregroundExtraMuted, fontSize: 11 },
+  chatRowTime: { color: theme.colors.foregroundExtraMuted, fontSize: theme.fontSize.sm },
   chatRowBottom: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: theme.spacing[2],
     marginTop: 2,
   },
-  chatRowSub: { color: theme.colors.foregroundExtraMuted, fontSize: 12, flex: 1, marginRight: 8 },
+  chatRowSub: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, flex: 1 },
   badge: {
-    backgroundColor: theme.colors.palette.red[500],
-    borderRadius: 9,
-    minWidth: 17,
-    height: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: theme.fontWeight.semibold },
-  mainFill: { flex: 1 },
-  welcome: { flex: 1, alignItems: "center", justifyContent: "center", gap: theme.spacing[3] },
-  welcomeTitle: {
-    color: theme.colors.foreground,
-    fontSize: 24,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  welcomeSubtitle: { color: theme.colors.foregroundMuted, fontSize: 13 },
-  welcomeCta: {
+    backgroundColor: theme.colors.statusDangerTint,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface2,
-    marginTop: theme.spacing[2],
-  },
-  welcomeCtaInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: theme.spacing[4],
-    paddingVertical: theme.spacing[2],
-  },
-  welcomeCtaText: {
-    color: theme.colors.foreground,
-    fontSize: 13,
-    fontWeight: theme.fontWeight.medium,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    minWidth: 20,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: theme.spacing[1],
   },
-  modalCard: {
-    width: 380,
-    maxHeight: 480,
-    backgroundColor: theme.colors.surface1,
-    borderRadius: theme.borderRadius.lg,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    padding: theme.spacing[3],
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    marginBottom: theme.spacing[2],
-  },
-  modalTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+  badgeText: {
+    color: theme.colors.statusDanger,
+    fontSize: theme.fontSize.code,
     fontWeight: theme.fontWeight.medium,
-    flex: 1,
   },
-  modalCloseGlyph: { color: theme.colors.foregroundMuted, fontSize: 14 },
-  modalScroll: { maxHeight: 380 },
-  dirRow: {
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.statusDotSuccess,
+  },
+  observeRow: { opacity: 0.72 },
+  observeUnreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.foregroundExtraMuted,
+  },
+  sessionRow: {
+    marginLeft: 56,
+    marginRight: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    flexDirection: "row",
+    justifyContent: "space-between",
     borderRadius: theme.borderRadius.md,
   },
-  dirRowPressed: { backgroundColor: theme.colors.surface2 },
-  dirRowInner: {
+  sessionName: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, flex: 1 },
+  sessionUnread: { color: theme.colors.statusDanger, fontSize: theme.fontSize.code },
+  searchResults: { paddingBottom: theme.spacing[3] },
+  searchResult: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-    paddingVertical: 8,
-    paddingHorizontal: theme.spacing[2],
+    gap: theme.spacing[3],
+    marginHorizontal: theme.spacing[2],
+    padding: theme.spacing[2],
+    borderRadius: theme.borderRadius.lg,
   },
-  dirRowText: { flex: 1, minWidth: 0 },
-  dirRowTitle: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
-  dirRowSub: { color: theme.colors.foregroundExtraMuted, fontSize: 11 },
+  searchEmpty: {
+    margin: theme.spacing[3],
+    padding: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface3,
+  },
+  errorBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    padding: theme.spacing[3],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
+  errorText: { flex: 1, color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  mainFill: { flex: 1 },
+  welcome: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: theme.spacing[16],
+    paddingHorizontal: theme.spacing[6],
+  },
+  welcomeLogo: { width: 64, height: 64, marginBottom: theme.spacing[6] },
+  welcomeTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize["3xl"],
+    fontWeight: theme.fontWeight.semibold,
+  },
+  welcomeSubtitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.base,
+    marginTop: theme.spacing[2],
+    textAlign: "center",
+  },
+  welcomeCta: {
+    height: 44,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    marginTop: theme.spacing[8],
+    paddingHorizontal: theme.spacing[6],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  welcomeCtaPressed: { opacity: theme.opacity[50] },
+  welcomeCtaText: {
+    color: theme.colors.accentForeground,
+    fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.medium,
+  },
 }));

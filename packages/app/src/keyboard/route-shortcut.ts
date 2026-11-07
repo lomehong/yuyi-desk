@@ -1,5 +1,6 @@
 import type { KeyboardShortcutPayload, MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
+import { topLevelModeStore } from "@/stores/wechat-mode-store";
 import { buildSettingsRoute, parseHostWorkspaceRouteFromPathname } from "@/utils/host-routes";
 import {
   getRelativeSidebarShortcutTarget,
@@ -65,6 +66,13 @@ const PASSTHROUGH_DISPATCH: Record<string, KeyboardActionDefinition> = {
   "workspace.pane.move-tab.down": { id: "workspace.pane.move-tab.down", scope: "workspace" },
   "workspace.pane.close": { id: "workspace.pane.close", scope: "workspace" },
   "view.toggle.focus": { id: "workspace.focus.toggle", scope: "workspace" },
+  "wechat.search.focus": { id: "wechat.search.focus", scope: "sidebar" },
+  "wechat.new-chat": { id: "wechat.new-chat", scope: "sidebar" },
+  "wechat.escape": { id: "wechat.escape", scope: "sidebar" },
+  "wechat.conv.next": { id: "wechat.conv.next", scope: "sidebar" },
+  "wechat.conv.prev": { id: "wechat.conv.prev", scope: "sidebar" },
+  "mode.workbench": { id: "mode.workbench", scope: "global" },
+  "mode.wechat": { id: "mode.wechat", scope: "global" },
 };
 
 const SIMPLE_CALLBACKS: Record<string, ShortcutCallbackName> = {
@@ -171,10 +179,29 @@ function routeSettingsToggle(ctx: ShortcutRoutingContext): ShortcutAction {
   return { kind: "router-back" };
 }
 
+/** 微信模式的动作改道（UI v2 快捷键）：返回改道结果或 undefined 走原路由 */
+function routeWeChatModeShortcut(input: ShortcutRoutingInput): ShortcutAction | undefined {
+  const inWeChat = topLevelModeStore.get() === "wechat";
+  if (input.action === "workspace.new" && inWeChat) {
+    return dispatch({ id: "wechat.new-chat", scope: "sidebar" });
+  }
+  if (input.action === "agent.interrupt" && inWeChat) {
+    return dispatch({ id: "wechat.escape", scope: "sidebar" });
+  }
+  if (input.action === "wechat.new-chat" && !inWeChat) {
+    return dispatch({ id: "workspace.new", scope: "sidebar" });
+  }
+  return undefined;
+}
+
 export function routeKeyboardShortcut(
   input: ShortcutRoutingInput,
   ctx: ShortcutRoutingContext,
 ): ShortcutAction {
+  const weChatReroute = routeWeChatModeShortcut(input);
+  if (weChatReroute) {
+    return weChatReroute;
+  }
   const passthrough = PASSTHROUGH_DISPATCH[input.action];
   if (passthrough) {
     if (

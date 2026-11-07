@@ -157,6 +157,11 @@ export const SHORTCUT_HELP_ROW_ORDER: Record<ShortcutSectionId, readonly string[
   general: [
     "toggle-command-center",
     "search-files",
+    "wechat-search",
+    "wechat-workbench",
+    "wechat-mode",
+    "wechat-next",
+    "wechat-prev",
     "show-shortcuts",
     "toggle-settings",
     "cycle-theme",
@@ -248,6 +253,13 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "dictation-toggle": "settings.shortcuts.help.startStopDictation",
   "agent-interrupt": "settings.shortcuts.help.interruptAgent",
   "voice-mute-toggle": "settings.shortcuts.help.muteUnmuteVoiceMode",
+  "wechat-search": "wechat.shortcuts.search",
+  "wechat-new-chat": "wechat.shortcuts.newChat",
+  "wechat-workbench": "wechat.shortcuts.workbench",
+  "wechat-mode": "wechat.shortcuts.wechat",
+  "wechat-next": "wechat.shortcuts.next",
+  "wechat-prev": "wechat.shortcuts.prev",
+  "wechat-escape": "wechat.shortcuts.escape",
 };
 
 const SHORTCUT_HELP_NOTE_KEYS: Record<string, string> = {
@@ -257,6 +269,41 @@ const SHORTCUT_HELP_NOTE_KEYS: Record<string, string> = {
 // --- Binding definitions ---
 
 const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
+  {
+    id: "wechat-search-ctrl-f",
+    action: "wechat.search.focus",
+    combo: "Ctrl+F",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: { id: "wechat-search", section: "general", label: "Search conversations or agents" },
+  },
+  {
+    id: "wechat-mode-workbench-ctrl-1",
+    action: "mode.workbench",
+    combo: "Ctrl+1",
+    when: { mac: false, desktop: true, commandCenter: false },
+    help: { id: "wechat-workbench", section: "general", label: "Switch to workbench" },
+  },
+  {
+    id: "wechat-mode-wechat-ctrl-2",
+    action: "mode.wechat",
+    combo: "Ctrl+2",
+    when: { mac: false, desktop: true, commandCenter: false },
+    help: { id: "wechat-mode", section: "general", label: "Switch to Agent 微信" },
+  },
+  {
+    id: "wechat-next-j",
+    action: "wechat.conv.next",
+    combo: "J",
+    when: { editable: false, terminal: false, commandCenter: false, focusScope: "other" },
+    help: { id: "wechat-next", section: "general", label: "Next conversation" },
+  },
+  {
+    id: "wechat-prev-k",
+    action: "wechat.conv.prev",
+    combo: "K",
+    when: { editable: false, terminal: false, commandCenter: false, focusScope: "other" },
+    help: { id: "wechat-prev", section: "general", label: "Previous conversation" },
+  },
   // --- Open project ---
   // Open project moved from Cmd+Shift+O to Cmd+O. The binding ids intentionally
   // keep their original "cmd-shift-o" / "ctrl-shift-o" names: user shortcut
@@ -294,7 +341,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     help: {
       id: "new-workspace",
       section: "workspaces",
-      label: "New workspace",
+      label: "New workspace or contact agent",
     },
   },
   {
@@ -305,7 +352,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     help: {
       id: "new-workspace",
       section: "workspaces",
-      label: "New workspace",
+      label: "New workspace or contact agent",
     },
   },
 

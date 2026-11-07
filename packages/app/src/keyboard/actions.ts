@@ -55,6 +55,13 @@ export type KeyboardActionId =
   | "workspace.pin"
   | "view.toggle.focus"
   | "theme.cycle"
+  | "wechat.search.focus"
+  | "wechat.new-chat"
+  | "wechat.escape"
+  | "wechat.conv.next"
+  | "wechat.conv.prev"
+  | "mode.workbench"
+  | "mode.wechat"
   | "message-input.action";
 
 export type KeyboardShortcutPayload =

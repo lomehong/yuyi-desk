@@ -1551,7 +1551,7 @@ export async function createPaseoDaemon(
     }
     res.json({ conversations: await yuyiService.chatList() });
   });
-  app.get("/api/yuyi/chat/history", async (req, res) => {
+  app.get("/api/yuyi/chat/history", (req, res) => {
     if (!yuyiService.mcpActive) {
       res.status(503).json({ error: "yuyi link inactive" });
       return;
@@ -1562,7 +1562,10 @@ export async function createPaseoDaemon(
       res.status(400).json({ error: "peer 必填" });
       return;
     }
-    res.json(await yuyiService.chatHistory(peerKey, Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 1000) : 200));
+    void yuyiService
+      .chatHistory(peerKey, Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 1000) : 200)
+      .then((r) => res.json(r))
+      .catch((error: unknown) => res.status(502).json({ error: String(error) }));
   });
   app.get("/api/yuyi/chat/unread", async (_req, res) => {
     if (!yuyiService.mcpActive) {
@@ -1571,9 +1574,74 @@ export async function createPaseoDaemon(
     }
     res.json({ unread: await yuyiService.chatUnread() });
   });
+  // UI v2 状态反馈（G6）：只读预览——不 markRead，通知桥/乐观对账高频专用
+  app.get("/api/yuyi/chat/preview", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const peerKey = String(req.query.peer ?? "").trim();
+    const tail = Number(req.query.tail ?? 200);
+    const since = Number(req.query.since ?? 0);
+    if (!peerKey) {
+      res.status(400).json({ error: "peer 必填" });
+      return;
+    }
+    void yuyiService
+      .chatPreview(
+        peerKey,
+        Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 1000) : 200,
+        Number.isFinite(since) && since > 0 ? since : undefined,
+      )
+      .then((r) => res.json(r))
+      .catch((error: unknown) => res.status(502).json({ error: String(error) }));
+  });
+  // UI v2 状态机 S1 佐证（P0.5）：对端 agent 真实忙碌态（本机 agent 才可知）
+  app.get("/api/yuyi/chat/turns", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const peerKey = String(req.query.peer ?? "").trim();
+    if (!peerKey) {
+      res.status(400).json({ error: "peer 必填" });
+      return;
+    }
+    res.json(yuyiService.turnsSnapshot(peerKey));
+  });
+  // UI v2 聚焦抑制：会话页打开时静默该会话的桌面通知（滑动 TTL）
+  app.get("/api/yuyi/chat/notify-suppressed", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const peerKey = String(req.query.peer ?? "").trim();
+    if (!peerKey) {
+      res.status(400).json({ error: "peer 必填" });
+      return;
+    }
+    res.json({ suppressed: yuyiService.isNotifySuppressed(peerKey) });
+  });
+  app.post("/api/yuyi/chat/notify-suppress", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const body = req.body as { peerKey?: unknown; ttlMs?: unknown };
+    const peerKey = typeof body.peerKey === "string" ? body.peerKey : "";
+    const ttlMs = Number(body.ttlMs ?? 5000);
+    if (!peerKey) {
+      res.status(400).json({ error: "peerKey 必填" });
+      return;
+    }
+    yuyiService.notifySuppress(peerKey, Number.isFinite(ttlMs) ? ttlMs : 5000);
+    res.json({ ok: true });
+  });
   app.post("/api/yuyi/inbox/ack", (req, res) => {
     const body = req.body as { binding?: string; ids?: unknown };
-    const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter((x): x is string => typeof x === "string")
+      : [];
     if (!body.binding || ids.length === 0) {
       res.status(400).json({ error: "binding 与 ids 必填" });
       return;
@@ -1903,9 +1971,7 @@ export async function createPaseoDaemon(
           return;
         }
         try {
-          const raw = req.query.callerAgentId;
-          const callerAgentId =
-            typeof raw === "string" ? raw : Array.isArray(raw) && typeof raw[0] === "string" ? raw[0] : undefined;
+          const callerAgentId = firstQueryParam(req.query.callerAgentId);
           const { server, transport } = await createYuyiMcpSession(callerAgentId);
           res.on("close", () => {
             void transport.close();
@@ -2291,4 +2357,11 @@ export function connectIdleRuntimeCleanupConfig(
 ): () => void {
   cleanup.setEnabled(store.get().idleRuntimeCleanup !== false);
   return store.onFieldChange("idleRuntimeCleanup", (value) => cleanup.setEnabled(value !== false));
+}
+
+/** query 参数取值（string 或 string[] 首项；缺省 undefined） */
+function firstQueryParam(raw: unknown): string | undefined {
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+  return undefined;
 }

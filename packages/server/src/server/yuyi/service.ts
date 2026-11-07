@@ -228,7 +228,7 @@ export class YuyiService {
     hub: string;
     device: string;
     principal: "device" | "agent" | null;
-    bindings: Array<{ name: string; paseoAgentId: string; title?: string | null }>;
+    bindings: Array<{ name: string; agentId: string; paseoAgentId: string; title?: string | null }>;
   } {
     return {
       connected: this.connected,
@@ -237,6 +237,8 @@ export class YuyiService {
       principal: this.link?.principal ?? null,
       bindings: [...this.byPaseo.values()].map((b) => ({
         name: b.name,
+        // 御符权威 agentId（身份卡「本机」徽章的匹配键——Agent 微信 UI v2 §1.1）
+        agentId: b.agentId,
         paseoAgentId: b.paseoAgentId,
         title: b.sessions[0]?.title ?? null,
       })),
@@ -259,6 +261,12 @@ export class YuyiService {
       device: String(d.device ?? ""),
       role: d.role === undefined ? undefined : String(d.role),
       agentId: d.agentId === undefined ? undefined : String(d.agentId),
+      // P1-7 工作现场（Hub 已透传，此前投影剥掉）：身份卡/处理中的真实信号源
+      //（Agent 微信 UI v2 §1；对端设备 opt-in，未开启则字段缺失=诚实降级）
+      activity:
+        d.activity !== undefined && d.activity !== null && typeof d.activity === "object"
+          ? (d.activity as Record<string, unknown>)
+          : undefined,
       sessions: Array.isArray(d.sessions)
         ? (d.sessions as Array<Record<string, unknown>>).map((s) => ({
             sessionID: String(s.sessionID ?? ""),
@@ -267,6 +275,30 @@ export class YuyiService {
           }))
         : [],
     }));
+  }
+
+  private inboxTargets(): Array<{ agentId: string; name: string; recipientID: string }> {
+    const targets: Array<{ agentId: string; name: string; recipientID: string }> = [];
+    const seenRecipients = new Set<string>();
+    for (const binding of this.byPaseo.values()) {
+      const recipientID = `${binding.agentId}:${binding.name.toLowerCase()}`;
+      if (seenRecipients.has(recipientID)) continue;
+      seenRecipients.add(recipientID);
+      targets.push({ agentId: binding.agentId, name: binding.name, recipientID });
+    }
+    const ownerUid = this.link?.ownerUserId;
+    const device = this.cachedConfig?.device;
+    if (ownerUid && device && this.link?.principal === "device") {
+      const recipientID = `owner:${ownerUid}:owner@${device.toLowerCase()}`;
+      if (!seenRecipients.has(recipientID)) {
+        targets.push({
+          agentId: `owner:${ownerUid}`,
+          name: `owner@${device}`,
+          recipientID,
+        });
+      }
+    }
+    return targets;
   }
 
   /** 逐绑定拉取 Hub 收件箱（全部条目）；单绑定失败不拖垮整体，记 error 字段 */
@@ -278,33 +310,7 @@ export class YuyiService {
       error?: string;
     }>;
   }> {
-    const bindings = [...this.byPaseo.values()];
-    // 收件箱是身份级（recipientID 唯一）：同身份多绑定（如多个匹配的 Paseo agent）
-    // 只取一次，避免 UI 重复渲染
-    const seenRecipients = new Set<string>();
-    const targets = bindings.filter((b) => {
-      const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
-      if (seenRecipients.has(recipientID)) return false;
-      seenRecipients.add(recipientID);
-      return true;
-    });
-    // Owner 收件箱（「Agent 微信」M1 §2.4）：Owner 直发的回信降级 mail 落在
-    // owner:<ownerUserId>:owner@<device>（Hub 在 Owner 直发时注册）。设备
-    // 连接的 inbox/fetch 对该 recipient 有归属豁免（ownerUserId=设备凭证）。
-    // welcome 未回带 ownerUserId（老 Hub）时跳过——回信仍拒信可见，不静默。
-    const ownerUid = this.link?.ownerUserId;
-    const device = this.cachedConfig?.device;
-    if (ownerUid && device && this.link?.principal === "device") {
-      // name 段按协议 recipientID 约定小写（protocol.ts recipientID）
-      const ownerRecipientID = `owner:${ownerUid}:owner@${device.toLowerCase()}`;
-      if (!seenRecipients.has(ownerRecipientID)) {
-        seenRecipients.add(ownerRecipientID);
-        targets.push({
-          agentId: `owner:${ownerUid}`,
-          name: `owner@${device}`,
-        } as (typeof targets)[number]);
-      }
-    }
+    const targets = this.inboxTargets();
     const results = await Promise.all(
       targets.map(async (b) => {
         const recipientID = `${b.agentId}:${b.name.toLowerCase()}`;
@@ -331,17 +337,20 @@ export class YuyiService {
   // ---- 「Agent 微信」M1：Owner 直发 + 会话面 ----
 
   /** Owner 本人直发（UI 输入框 → Hub Owner 通道 → 本地流水 out 条目） */
-  async sendAsOwner(input: {
-    to: string;
-    text: string;
-    myName?: string;
-  }): Promise<{ ok: boolean; detail?: string }> {
+  async sendAsOwner(input: { to: string; text: string; myName?: string }): Promise<{
+    ok: boolean;
+    detail?: string;
+    /** 结构化投递分类（UI 状态机 S0→S1/S2/S3/S5 的判定键，替代字符串猜测） */
+    delivery?: "injected" | "mailed" | "delivered" | "failed";
+    /** 本地流水 id（乐观气泡与 history 对账键） */
+    messageId?: string;
+  }> {
     if (!this.link?.connected) {
-      return { ok: false, detail: "yuyi 链接未激活" };
+      return { ok: false, detail: "yuyi 链接未激活", delivery: "failed" };
     }
     const text = input.text.trim();
     if (!text) {
-      return { ok: false, detail: "消息为空" };
+      return { ok: false, detail: "消息为空", delivery: "failed" };
     }
     const config = this.cachedConfig;
     const message = {
@@ -353,18 +362,21 @@ export class YuyiService {
       from: { device: config?.device ?? "", name: input.myName ?? "我" },
     };
     const ack = await this.link.sendFromOwner(message);
+    // 结构化分类（daemon 侧一次判定，App 免去 detail 正则——UI v2 状态机 G2 修复）
+    const delivery = classifyOwnerDelivery(ack.ok, ack.detail ?? "");
     // 本地流水（无论成败都记——失败也是会话历史的一部分，气泡可重试态）
     const peer = this.peerForTarget(input.to);
+    const messageId = randomUUID();
     await this.chats.append(peer, {
-      id: randomUUID(),
+      id: messageId,
       at: Date.now(),
       dir: "out",
       text,
       from: { name: input.myName ?? "我" },
       hubId: message.id,
-      ack: { ok: ack.ok, detail: ack.detail },
+      ack: { ok: ack.ok, detail: ack.detail, delivery },
     });
-    return ack;
+    return { ok: ack.ok, detail: ack.detail, delivery, messageId };
   }
 
   /** 会话列表（最近会话，按 lastAt 降序） */
@@ -372,16 +384,99 @@ export class YuyiService {
     return this.chats.list();
   }
 
-  /** 某会话消息流 + 清未读 */
+  /** 某会话消息流 + 清未读（同时滑动抑制该会话桌面通知——正盯着看的会话不再弹） */
   async chatHistory(peerKey: string, tail?: number): Promise<unknown> {
     const history = await this.chats.history(peerKey, tail);
     await this.chats.markRead(peerKey);
+    this.notifySuppress(peerKey, 5_000);
     return { peerKey, messages: history };
   }
 
   /** Agent 微信总未读（主区本地计数；通知桥红点数据源之一） */
   async chatUnread(): Promise<number> {
     return this.chats.totalUnread();
+  }
+
+  /**
+   * 只读消息预览（UI v2 状态反馈 G6）：与 chatHistory 的唯一差异是**不 markRead**——
+   * 通知桥取内容、乐观气泡对账等高频只读场景专用；sinceTs 给定时仅返回该时刻之后
+   * 的条目（增量拉取）。
+   */
+  async chatPreview(peerKey: string, tail = 200, sinceTs?: number): Promise<unknown> {
+    const history = await this.chats.history(peerKey, tail);
+    const messages = sinceTs ? history.filter((m) => m.at > sinceTs) : history;
+    return { peerKey, messages };
+  }
+
+  /** 会话通知抑制表（peerKey → 抑制截止时刻；会话页聚焦时桌面通知静默） */
+  private notifySuppressUntil = new Map<string, number>();
+
+  notifySuppress(peerKey: string, ttlMs: number): void {
+    this.notifySuppressUntil.set(peerKey, Date.now() + Math.min(Math.max(ttlMs, 0), 60_000));
+  }
+
+  isNotifySuppressed(peerKey: string): boolean {
+    const until = this.notifySuppressUntil.get(peerKey);
+    if (!until) return false;
+    if (Date.now() > until) {
+      this.notifySuppressUntil.delete(peerKey);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 对端「处理中」真实信号（UI v2 状态机 S1 佐证，P0.5）：
+   * 本机 agent → hasInFlightRun/lifecycle 真实忙碌；远端 agent → busy=null
+   * （本机不可知，诚实降级——UI 按未知处理，不伪状态）。
+   */
+  turnsSnapshot(peerKey: string): { peerKey: string; busy: boolean | null } {
+    const agentId = peerKey.split(":")[0] ?? "";
+    const binding = [...this.byPaseo.values()].find((b) => b.agentId === agentId);
+    if (!binding) {
+      return { peerKey, busy: null };
+    }
+    const activity = this.activityFieldsFor(binding.paseoAgentId, {
+      busy: true,
+      doing: false,
+      repo: "off",
+    });
+    const busy = (activity.activity as { busy?: boolean } | undefined)?.busy;
+    return { peerKey, busy: busy ?? false };
+  }
+
+  /** 各 recipient 上轮 count 基线（3s 探针的变化检测） */
+  private inboxCountBaseline = new Map<string, number>();
+  /** 探针强制全量对账节流 */
+  private lastForcedDrainAt = 0;
+
+  /**
+   * 3s 廉价探针：inboxCount(limit=0) 只问未读计数、零副作用；计数较上轮变化
+   * 才触发全量 drain（归组+ack）。15s 强制对账一次（count 误判兜底）。
+   */
+  private async pollInboxProbe(): Promise<void> {
+    if (!this.link?.connected || !this.chats) return;
+    try {
+      let changed = false;
+      for (const binding of this.inboxTargets()) {
+        const count = await this.link.inboxCount(binding.recipientID).catch(() => undefined);
+        if (count === undefined) continue;
+        const prev = this.inboxCountBaseline.get(binding.recipientID);
+        if (prev !== undefined && count !== prev) changed = true;
+        this.inboxCountBaseline.set(binding.recipientID, count);
+      }
+      const now = Date.now();
+      const dueForced = now - this.lastForcedDrainAt >= 15_000;
+      if (changed || dueForced) {
+        if (dueForced) this.lastForcedDrainAt = now;
+        const snapshot = await this.inboxSnapshot();
+        for (const binding of snapshot.bindings) {
+          await this.drainBindingIntoChats(binding);
+        }
+      }
+    } catch {
+      // 探针失败静默（下轮重试）
+    }
   }
 
   /**
@@ -407,7 +502,14 @@ export class YuyiService {
     entries: unknown[];
   }): Promise<void> {
     const entries = binding.entries as Array<{
-      message?: { id?: string; text?: string; time?: number; from?: Record<string, unknown> };
+      message?: {
+        id?: string;
+        text?: string;
+        time?: number;
+        from?: Record<string, unknown>;
+        replyTo?: string;
+        taskId?: string;
+      };
       receivedAt?: number;
     }>;
     if (!Array.isArray(entries) || entries.length === 0) return;
@@ -438,6 +540,9 @@ export class YuyiService {
         text: msg.text ?? "",
         from,
         hubId,
+        // 协议引用链/任务段（UI v2 结果卡引用行 + 旁观回合分组的数据基础）
+        ...(msg.replyTo ? { replyTo: String(msg.replyTo) } : {}),
+        ...(msg.taskId ? { taskId: String(msg.taskId) } : {}),
       };
       await this.chats.append(peer, chatMsg);
     }
@@ -565,7 +670,10 @@ export class YuyiService {
       this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
       (m) => this.logger.info(m),
     );
-    this.inboxPollTimer = setInterval(() => void this.pollInboxIntoChats(), 15_000);
+    // UI v2 批次1（状态反馈 G3）：3s inboxCount 廉价探针（limit=0 零副作用）——
+    // 计数变化才全量 drain（归组+ack）；15s 强制对账一次兜底防漏。回信可见延迟
+    // 30s（daemon 15s+App 15s 串联）→ daemon 侧 ≤3s。
+    this.inboxPollTimer = setInterval(() => void this.pollInboxProbe(), 3_000);
     this.inboxPollTimer.unref?.();
     void this.pollInboxIntoChats();
     // device/state 周期上报（30s；变更即推由 bind/unbind/control 后调 pushDeviceState）
@@ -999,6 +1107,37 @@ export class YuyiService {
     };
   }
 
+  /** Owner 直发 dogfood 归组（observeAgentTraffic 的 owner 分支：复杂度拆分） */
+  private async observeOwnerDirectIntoChat(message: YuyiMessage): Promise<void> {
+    if (!this.chats) return;
+    // Owner 直发 dogfood（设计 §5「我 ↔ 本机 Agent」）：from.role=owner 的入向
+    // 不是旁观流量——归入 Owner↔agent 主会话（notify 直投不进 inbox，只能在此
+    // 补记；mail 路径另有 inbox 轮询归组，同 hubId 双写时由 UI 端文本幂等兜底）。
+    {
+      const senderKey = this.peerKeyOfFrom(message.from);
+      await this.chats.append(
+        {
+          key: senderKey,
+          title:
+            message.from?.ownerUsername || message.from?.name || message.from?.device || "Owner",
+          kind: "owner",
+          role: "owner",
+        },
+        {
+          id: randomUUID(),
+          at: message.time ?? Date.now(),
+          dir: "in",
+          text: message.text ?? "",
+          from: message.from as unknown as Record<string, unknown>,
+          hubId: message.id,
+          ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+          ...(message.taskId ? { taskId: message.taskId } : {}),
+        },
+      );
+      return;
+    }
+  }
+
   private async observeAgentTraffic(
     binding: YuyiBinding,
     message: YuyiMessage,
@@ -1007,30 +1146,8 @@ export class YuyiService {
     if (!this.chats) return;
     try {
       const other = this.observePeerOf(message, dir);
-      // Owner 直发 dogfood（设计 §5「我 ↔ 本机 Agent」）：from.role=owner 的入向
-      // 不是旁观流量——归入 Owner↔agent 主会话（notify 直投不进 inbox，只能在此
-      // 补记；mail 路径另有 inbox 轮询归组，同 hubId 双写时由 UI 端文本幂等兜底）。
-      if (dir === "in" && message.from?.role === "owner") {
-        const senderKey = this.peerKeyOfFrom(message.from);
-        await this.chats.append(
-          {
-            key: senderKey,
-            title:
-              message.from?.ownerUsername || message.from?.name || message.from?.device || "Owner",
-            kind: "owner",
-            role: "owner",
-          },
-          {
-            id: randomUUID(),
-            at: message.time ?? Date.now(),
-            dir: "in",
-            text: message.text ?? "",
-            from: message.from as unknown as Record<string, unknown>,
-            hubId: message.id,
-          },
-        );
-        return;
-      }
+      await this.observeOwnerDirectIntoChat(message);
+      return;
       await this.chats.append(
         {
           key: `observe:${binding.agentId}:${other.key}`,
@@ -1047,6 +1164,8 @@ export class YuyiService {
             ...(dir === "in" ? other.from : { name: binding.name, agentId: binding.agentId }),
           },
           hubId: message.id,
+          ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+          ...(message.taskId ? { taskId: message.taskId } : {}),
         },
       );
     } catch {
@@ -1166,6 +1285,17 @@ export class YuyiService {
       );
     }
   }
+}
+
+/** Owner 直发 ack → 结构化投递分类（UI v2 状态机 G2：daemon 一次判定） */
+function classifyOwnerDelivery(
+  ok: boolean,
+  detail: string,
+): "injected" | "mailed" | "delivered" | "failed" {
+  if (!ok) return "failed";
+  if (/已注入/.test(detail)) return "injected";
+  if (/mail|收件箱/i.test(detail)) return "mailed";
+  return "delivered";
 }
 
 /** 组装注入 prompt（来源可辨识；expectReply 时告知将有自动回信） */

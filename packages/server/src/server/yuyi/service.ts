@@ -1007,6 +1007,30 @@ export class YuyiService {
     if (!this.chats) return;
     try {
       const other = this.observePeerOf(message, dir);
+      // Owner 直发 dogfood（设计 §5「我 ↔ 本机 Agent」）：from.role=owner 的入向
+      // 不是旁观流量——归入 Owner↔agent 主会话（notify 直投不进 inbox，只能在此
+      // 补记；mail 路径另有 inbox 轮询归组，同 hubId 双写时由 UI 端文本幂等兜底）。
+      if (dir === "in" && message.from?.role === "owner") {
+        const senderKey = this.peerKeyOfFrom(message.from);
+        await this.chats.append(
+          {
+            key: senderKey,
+            title:
+              message.from?.ownerUsername || message.from?.name || message.from?.device || "Owner",
+            kind: "owner",
+            role: "owner",
+          },
+          {
+            id: randomUUID(),
+            at: message.time ?? Date.now(),
+            dir: "in",
+            text: message.text ?? "",
+            from: message.from as unknown as Record<string, unknown>,
+            hubId: message.id,
+          },
+        );
+        return;
+      }
       await this.chats.append(
         {
           key: `observe:${binding.agentId}:${other.key}`,

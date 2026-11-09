@@ -8,6 +8,7 @@ import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import type { YuyiChatMessage } from "@/yuyi/api";
 import type { Theme } from "@/styles/theme";
+import { LinkifiedText } from "./linkified-text";
 
 const ThemedBot = withUnistyles(Bot);
 const ThemedCopy = withUnistyles(Copy);
@@ -202,9 +203,11 @@ export function ResultCard({
             );
           }
           return (
-            <Text key={key} style={[styles.bodyText, block.type === "list" && styles.listText]}>
-              {block.text}
-            </Text>
+            <LinkifiedText
+              key={key}
+              text={block.text}
+              style={[styles.bodyText, block.type === "list" && styles.listText]}
+            />
           );
         })}
       </View>

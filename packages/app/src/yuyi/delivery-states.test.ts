@@ -52,6 +52,42 @@ describe("messageDeliveryState", () => {
 
     expect(deliveryStates.messageDeliveryState(msg, 5_000, { hasReply: true })).toBe("delivered");
   });
+
+  it("uses started as a strong processing signal beyond the legacy timeout", () => {
+    const msg = outgoing({ ack: { ok: true, delivery: "injected" } });
+    expect(
+      deliveryStates.messageDeliveryState(msg, 120_000, {
+        peerBusy: false,
+        turnOutcome: "started",
+      }),
+    ).toBe("injected");
+  });
+
+  it("maps protocol terminal outcomes without fabricating a reply", () => {
+    const msg = outgoing({ ack: { ok: true, delivery: "injected" } });
+    expect(deliveryStates.messageDeliveryState(msg, 2_000, { turnOutcome: "replied" })).toBe(
+      "delivered",
+    );
+    expect(
+      deliveryStates.messageDeliveryState(msg, 2_000, { turnOutcome: "completed-without-reply" }),
+    ).toBe("noReply");
+    expect(deliveryStates.messageDeliveryState(msg, 2_000, { turnOutcome: "failed" })).toBe(
+      "failed",
+    );
+    expect(
+      deliveryStates.messageDeliveryState(msg, 120_000, { turnOutcome: "waiting-permission" }),
+    ).toBe("injected");
+  });
+
+  it("prefers a real reply over a completed-without-reply event", () => {
+    const msg = outgoing({ ack: { ok: true, delivery: "injected" } });
+    expect(
+      deliveryStates.messageDeliveryState(msg, 2_000, {
+        hasReply: true,
+        turnOutcome: "completed-without-reply",
+      }),
+    ).toBe("delivered");
+  });
 });
 
 describe("reconcilePendingMessages", () => {

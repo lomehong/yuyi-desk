@@ -15,7 +15,7 @@ function AvatarGlyph({
   kind,
   iconSize,
 }: {
-  kind: "owner" | "agent" | "observe";
+  kind: "owner" | "agent" | "observe" | "task";
   iconSize: number;
 }): ReactElement {
   if (kind === "owner") return <ThemedUsers size={iconSize} uniProps={amberIcon} />;
@@ -28,7 +28,7 @@ export function AgentAvatar({
   size = 36,
   busy = false,
 }: {
-  kind: "owner" | "agent" | "observe";
+  kind: "owner" | "agent" | "observe" | "task";
   size?: 28 | 36;
   busy?: boolean;
 }): ReactElement {
@@ -56,6 +56,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: `${theme.colors.palette.amber[500]}${theme.colorScheme === "dark" ? "29" : "1f"}`,
   },
   observe: { backgroundColor: theme.colors.surface3 },
+  task: { backgroundColor: `${theme.colors.accent}${theme.colorScheme === "dark" ? "29" : "1f"}` },
   busyDot: {
     position: "absolute",
     top: 0,

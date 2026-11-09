@@ -9,7 +9,7 @@
     "bundle-runtime": "node scripts/bundle-runtime.mjs",
     "icon": "tauri icon app-icon.png",
     "dev": "npm run sync-web && tauri dev",
-    "build": "npm run sync-web && npm run bundle-runtime && tauri build",
+    "build": "npm --prefix ../../packages/app run build:web && npm --prefix ../../packages/server run build && npm run sync-web && npm run bundle-runtime && tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {

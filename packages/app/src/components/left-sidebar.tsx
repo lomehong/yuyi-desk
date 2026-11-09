@@ -23,7 +23,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarCloseButton } from "@/components/headers/sidebar-close-button";
-import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
+import {
+  DESKTOP_SIDEBAR_FILL_STYLE,
+  resolveDesktopSidebarWidth,
+} from "@/components/desktop-sidebar-layout";
 import {
   SIDEBAR_RESIZE_ACTIVATION_OFFSET,
   SIDEBAR_RESIZE_FAIL_OFFSET,
@@ -867,12 +870,14 @@ const styles = StyleSheet.create((theme) => ({
     marginRight: theme.spacing[2],
   },
   desktopSidebarBorder: {
+    ...DESKTOP_SIDEBAR_FILL_STYLE,
     // yuyi fork (M2e): Tauri 帧模式下侧栏坐在容器上，与卡片之间靠缝隙分隔——去右边框线
     borderRightWidth: isYuyiTauriShell() ? 0 : 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
   },
   sidebarDragArea: {
+    ...DESKTOP_SIDEBAR_FILL_STYLE,
     position: "relative",
   },
   desktopChromeRow: {

@@ -12,7 +12,18 @@
  *     accepted_async（自动回信后续完成），失败回 wakeup_failed（Hub 降级 mail，消息不丢）。
  */
 import { HubClient } from "@qianji/core/hub-client";
-import type { DeliverResult, RosterSession, YuyiMessage } from "@qianji/protocol";
+import type {
+  ApprovalDecision,
+  ApprovalResultFrame,
+  DeliverResult,
+  DeviceControlFrame,
+  RosterSession,
+  TaskDataFrame,
+  TurnFinishedFrame,
+  TurnOutcome,
+  TurnStartedFrame,
+  YuyiMessage,
+} from "@qianji/protocol";
 import type { ResolvedYuyiConfig, YuyiAgentMapping } from "./config.js";
 
 /** 一个已绑定的本地 Agent：御驿身份 ↔ Paseo agent */
@@ -46,6 +57,9 @@ export interface YuyiLinkOptions {
     agentId: string,
     opts?: { reason?: string; until?: number },
   ) => Promise<{ ok: boolean; detail?: string }>;
+  onTurnEvent?: (frame: TurnStartedFrame | TurnFinishedFrame) => void;
+  onApprovalRequest?: (frame: DeviceControlFrame) => void;
+  onApprovalResult?: (frame: ApprovalResultFrame) => void;
 }
 
 export class YuyiLink {
@@ -62,6 +76,10 @@ export class YuyiLink {
 
   get connected(): boolean {
     return this.hub?.connected ?? false;
+  }
+
+  get ownerBroadcastSupported(): boolean {
+    return this.hub?.supports("owner-broadcast") ?? false;
   }
 
   /** Hub 认定的连接主体（welcome 回带；未握手时 undefined） */
@@ -102,18 +120,35 @@ export class YuyiLink {
       },
       // Hub 下发 device/control（管理台闸门）→ service 执行 → ack 回执（吸收合并落地）
       onServerFrame: (frame) => {
+        if (frame.type === "approval/result") {
+          this.opts.onApprovalResult?.(frame);
+          return;
+        }
+        if (frame.type === "agent/turn-started" || frame.type === "agent/turn-finished") {
+          this.opts.onTurnEvent?.(frame);
+          return;
+        }
         if (frame.type !== "device/control") {
           return;
         }
-        const control = frame as import("@qianji/protocol").DeviceControlFrame;
+        const control = frame as DeviceControlFrame;
+        if (control.op === "approval/request") {
+          this.opts.onApprovalRequest?.(control);
+          return;
+        }
+        if (control.op === "approval/resolution") return;
         void (async () => {
           let result: { ok: boolean; detail?: string };
           if (this.opts.onDeviceControl) {
             try {
-              result = await this.opts.onDeviceControl(control.op, control.agentId, {
-                reason: control.reason,
-                until: control.until,
-              });
+              result = await this.opts.onDeviceControl(
+                control.op as "terminate" | "block" | "release",
+                control.agentId,
+                {
+                  reason: control.reason,
+                  until: control.until,
+                },
+              );
             } catch (error) {
               result = { ok: false, detail: String(error) };
             }
@@ -245,7 +280,7 @@ export class YuyiLink {
   /**
    * Owner 本人直发（「Agent 微信」M1）：from 不声明 agentId——Hub resolveActor
    * 从设备凭证合成 Owner 主体（role=owner，接收端按「Owner 直接指令 · 最高
-   * 优先级」渲染）。M1 限 1:1（广播被 Hub 拒）。
+   * 优先级」渲染）。带 taskId 的 Owner 广播复用同一设备身份边界。
    */
   async sendFromOwner(
     message: Omit<YuyiMessage, "from"> & { from?: Partial<YuyiMessage["from"]> },
@@ -259,12 +294,51 @@ export class YuyiLink {
     return hub.send(message as YuyiMessage, undefined);
   }
 
+  async sendTurnStarted(
+    binding: YuyiBinding,
+    input: { replyTo: string; taskId?: string },
+  ): Promise<void> {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    await this.hub.sendTurnStarted({ agentId: binding.agentId, ...input });
+  }
+
+  async sendTurnFinished(
+    binding: YuyiBinding,
+    input: { replyTo: string; taskId?: string; outcome: TurnOutcome },
+  ): Promise<void> {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    await this.hub.sendTurnFinished({ agentId: binding.agentId, ...input });
+  }
+
+  async requestApproval(
+    binding: YuyiBinding,
+    input: { approvalId: string; summary: string; expiresAt: number },
+  ) {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    return this.hub.requestApproval({ fromAgentId: binding.agentId, ...input });
+  }
+
+  async resolveApproval(input: {
+    agentId: string;
+    approvalId: string;
+    decision: ApprovalDecision;
+    note?: string;
+  }) {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    return this.hub.resolveApproval(input);
+  }
+
   /** Hub peers 快照（未连接时抛错由调用方兜底） */
   async peers(): Promise<unknown> {
     if (!this.hub?.connected) {
       throw new Error("yuyi hub offline");
     }
     return this.hub.peers();
+  }
+
+  async taskFetch(taskId: string): Promise<TaskDataFrame["task"] | undefined> {
+    if (!this.hub?.connected) throw new Error("yuyi hub offline");
+    return this.hub.taskFetch(taskId);
   }
 
   /** 拉取 Hub 侧收件箱（recipient 缺省=连接自身身份；drain 至末尾） */

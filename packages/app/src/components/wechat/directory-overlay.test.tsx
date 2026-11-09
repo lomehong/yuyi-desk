@@ -63,6 +63,40 @@ describe("DirectoryOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the adaptive dialog and distinguishes online entries from offline history", () => {
+    const groups = buildDirectoryGroups(
+      [
+        {
+          device: "dev",
+          agentId: "agent-1",
+          sessions: [{ sessionID: "raw-named", name: "workspace" }],
+        },
+      ],
+      null,
+      [
+        {
+          peer: { key: "agent-2:old", title: "Offline Agent", kind: "agent" },
+          lastAt: 1,
+          lastText: "offline",
+          unread: 0,
+        },
+      ],
+    );
+    render(
+      <DirectoryOverlay
+        visible
+        groups={groups}
+        filter=""
+        onFilterChange={vi.fn()}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getAllByLabelText("在线")).toHaveLength(1);
+  });
+
   it("does not select an unnamed session with a pointer", () => {
     const onPick = vi.fn();
     const groups = buildDirectoryGroups(

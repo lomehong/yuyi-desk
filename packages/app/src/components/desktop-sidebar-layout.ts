@@ -4,6 +4,8 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "@/stores/panel-store";
 
 const MIN_DESKTOP_CENTER_WIDTH = 400;
 
+export const DESKTOP_SIDEBAR_FILL_STYLE = { flex: 1, minHeight: 0 } as const;
+
 export function resolveDesktopSidebarVisibility(input: {
   chromeEnabled: boolean;
   isCompactLayout: boolean;

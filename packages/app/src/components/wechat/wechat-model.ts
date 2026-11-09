@@ -47,7 +47,7 @@ export function formatUnreadCount(unread: number): string {
 export function groupAgentRows(conversations: YuyiChatEntry[]): AgentConversationRow[] {
   const groups = new Map<string, YuyiChatEntry[]>();
   for (const conversation of conversations) {
-    if (conversation.peer.kind === "observe") continue;
+    if (conversation.peer.kind !== "agent" && conversation.peer.kind !== "owner") continue;
     const agentId = agentIdFromPeerKey(conversation.peer.key);
     const key = `${conversation.peer.kind}:${agentId}`;
     const sessions = groups.get(key) ?? [];
@@ -128,7 +128,7 @@ function appendOfflineEntries(
   localAgentIds: Set<string>,
 ): void {
   for (const conversation of conversations) {
-    if (conversation.peer.kind === "observe") continue;
+    if (conversation.peer.kind !== "agent" && conversation.peer.kind !== "owner") continue;
     const agentId = agentIdFromPeerKey(conversation.peer.key);
     if (onlineAgentIds.has(agentId) || localAgentIds.has(agentId)) continue;
     push(

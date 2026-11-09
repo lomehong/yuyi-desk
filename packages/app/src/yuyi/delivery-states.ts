@@ -24,6 +24,7 @@ export interface DeliveryAck {
 export interface DeliveryStateOptions {
   hasReply?: boolean;
   peerBusy?: boolean | null;
+  turnOutcome?: "started" | "replied" | "completed-without-reply" | "failed" | "waiting-permission";
 }
 
 export function classifyDelivery(ack?: DeliveryAck): DeliveryKind {
@@ -36,6 +37,17 @@ export function classifyDelivery(ack?: DeliveryAck): DeliveryKind {
   return "delivered";
 }
 
+// 回合结局折算投递态：五个已知结局均有映射，无回合信息返回 null 交由后续规则判定
+function turnOutcomeDelivery(
+  turnOutcome: DeliveryStateOptions["turnOutcome"],
+): DeliveryKind | null {
+  if (turnOutcome === "replied") return "delivered";
+  if (turnOutcome === "completed-without-reply") return "noReply";
+  if (turnOutcome === "failed") return "failed";
+  if (turnOutcome === "started" || turnOutcome === "waiting-permission") return "injected";
+  return null;
+}
+
 export function messageDeliveryState(
   msg: { dir: "out" | "in"; at?: number; ackAt?: number; ack?: DeliveryAck },
   now: number,
@@ -45,7 +57,10 @@ export function messageDeliveryState(
   const kind = classifyDelivery(msg.ack);
   const elapsed = now - (msg.ackAt ?? msg.at ?? now);
   if (kind === "pending") return elapsed > 8_000 ? "failed" : "pending";
+  if (options.hasReply && (kind === "injected" || options.turnOutcome)) return "delivered";
   if (kind !== "injected") return kind;
+  const fromTurn = turnOutcomeDelivery(options.turnOutcome);
+  if (fromTurn) return fromTurn;
   if (options.hasReply) return "delivered";
   if (options.peerBusy === false && elapsed > 20_000) return "noReply";
   if (options.peerBusy !== true && elapsed > 90_000) return "noReply";

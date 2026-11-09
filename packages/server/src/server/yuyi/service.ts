@@ -27,11 +27,28 @@ import {
   type YuyiAgentMapping,
   type YuyiConfig,
 } from "./config.js";
-import { ConversationStore, type ChatMessage, type PeerRef } from "./conversations.js";
+import {
+  ConversationStore,
+  type ChatMessage,
+  type PeerRef,
+  type ConversationStoreEvent,
+} from "./conversations.js";
 import { YuyiLink, type YuyiBinding } from "./link.js";
 import type { YuyiMessage } from "@qianji/protocol";
+import { appendTaskRecord, taskView } from "@qianji/core/task-record";
+import { rollTaskSegmentIfNeeded } from "@qianji/core/task-segments";
+import { TurnEventProjection, runAgentTurn, type TurnProjection } from "./turn-events.js";
+import { DaemonApprovalService, type DaemonApproval } from "./approval-service.js";
 
 type AgentEvent = Parameters<Parameters<AgentManager["subscribe"]>[0]>[0];
+
+export interface YuyiRuntimeEvent {
+  kind: "peers-changed" | "turn-changed" | "approval-changed";
+  peerKey: string;
+  busy?: boolean;
+  turn?: TurnProjection;
+  approval?: DaemonApproval;
+}
 
 /** 事件/清单里的 agent 快照（只取我们关心的字段） */
 interface AgentSnapshotLike {
@@ -148,9 +165,29 @@ export class YuyiService {
   private chats!: ConversationStore;
   private inboxPollTimer: ReturnType<typeof setInterval> | null = null;
   private stateTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly turnsByReplyTo = new TurnEventProjection();
+  private readonly approvals: DaemonApprovalService;
 
   constructor(private readonly opts: YuyiServiceOptions) {
     this.logger = opts.logger.child({ module: "yuyi" });
+    this.approvals = new DaemonApprovalService({
+      agentManager: opts.agentManager,
+      agentStorage: opts.agentStorage,
+      logger: this.logger,
+      knownSecrets: () => this.knownSecrets(),
+      onChange: (approval) =>
+        this.emitChatEvent({ kind: "approval-changed", peerKey: "*", approval }),
+    });
+    this.turnsByReplyTo.subscribe((turn) => {
+      const binding = [...this.byPaseo.values()].find(
+        (candidate) => candidate.agentId === turn.agentId,
+      );
+      this.emitChatEvent({
+        kind: "turn-changed",
+        peerKey: binding ? `${binding.agentId}:${binding.name}` : "*",
+        turn,
+      });
+    });
   }
 
   get connected(): boolean {
@@ -243,6 +280,41 @@ export class YuyiService {
         title: b.sessions[0]?.title ?? null,
       })),
     };
+  }
+
+  async taskSnapshot(taskId: string): Promise<unknown> {
+    if (!this.link) throw new Error("yuyi hub offline");
+    const task = await this.link.taskFetch(taskId);
+    return task ? { task } : {};
+  }
+
+  approvalList(): unknown {
+    return { approvals: this.approvals.list() };
+  }
+
+  async resolveApproval(input: {
+    approvalId: string;
+    decision: "approved" | "denied";
+    note?: string;
+  }): Promise<{ ok: boolean; detail?: string }> {
+    const approval = this.approvals.get(input.approvalId);
+    if (!approval || approval.state !== "pending" || approval.expiresAt <= Date.now()) {
+      return { ok: false, detail: "approval missing or expired" };
+    }
+    if (!this.link) return { ok: false, detail: "yuyi hub offline" };
+    try {
+      const ack = await this.link.resolveApproval({
+        agentId: approval.fromAgentId ?? approval.agentId,
+        approvalId: input.approvalId,
+        decision: input.decision,
+        note: input.note,
+      });
+      if (ack.ok && approval.remote)
+        this.approvals.markResolved(input.approvalId, input.decision, input.note);
+      return { ok: ack.ok, detail: ack.detail };
+    } catch (error) {
+      return { ok: false, detail: String(error) };
+    }
   }
 
   async peersSnapshot(): Promise<
@@ -379,9 +451,117 @@ export class YuyiService {
     return { ok: ack.ok, detail: ack.detail, delivery, messageId };
   }
 
-  /** 会话列表（最近会话，按 lastAt 降序） */
-  async chatList(): Promise<unknown> {
-    return this.chats.list();
+  async broadcastAsOwner(input: {
+    text: string;
+    title: string;
+    taskId: string;
+    parentTaskId?: string;
+    myName?: string;
+  }): Promise<{
+    ok: boolean;
+    delivery: "injected" | "mailed" | "delivered" | "failed";
+    messageId?: string;
+    taskId: string;
+    detail?: string;
+  }> {
+    const title = input.title.trim();
+    const text = input.text.trim();
+    const requestedTaskId = input.taskId.trim();
+    const guard = validateBroadcastRequest(title, text, requestedTaskId, {
+      connected: this.link?.connected === true,
+      broadcastSupported: this.link?.ownerBroadcastSupported === true,
+    });
+    if (guard) {
+      return { ok: false, delivery: "failed", taskId: requestedTaskId, detail: guard };
+    }
+    const taskId = rollTaskSegmentIfNeeded(requestedTaskId, input.myName ?? "Owner");
+    const parentTaskId = taskId !== requestedTaskId ? requestedTaskId : input.parentTaskId;
+    const message: YuyiMessage = {
+      id: `broadcast_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      mode: "notify",
+      text,
+      time: Date.now(),
+      to: { target: "*" },
+      from: {
+        device: this.cachedConfig?.device ?? "",
+        name: input.myName ?? "我",
+      } as YuyiMessage["from"],
+      taskId,
+      ...(parentTaskId ? { parentTaskId } : {}),
+    };
+    const recorded = appendTaskRecord(taskId, {
+      kind: "request",
+      msgId: message.id,
+      from: { device: message.from.device, name: input.myName ?? "我" },
+      to: { target: "*" },
+      text,
+    });
+    if (!recorded.ok) {
+      return {
+        ok: false,
+        delivery: "failed",
+        taskId,
+        detail: `任务段写入失败：${recorded.reason ?? "io"}`,
+      };
+    }
+    const ack = await this.link?.sendFromOwner(message);
+    if (!ack) {
+      return { ok: false, delivery: "failed", taskId, detail: "yuyi 链接未激活" };
+    }
+    const delivery = classifyOwnerDelivery(ack.ok, ack.detail ?? "");
+    const messageId = randomUUID();
+    await this.chats.append(
+      { key: `task:${requestedTaskId}`, title, kind: "task" },
+      {
+        id: messageId,
+        at: Date.now(),
+        dir: "out",
+        text,
+        from: { name: input.myName ?? "我", role: "owner" },
+        hubId: message.id,
+        taskId,
+        ...(parentTaskId ? { parentTaskId } : {}),
+        ack: { ok: ack.ok, detail: ack.detail, delivery },
+      },
+    );
+    return { ok: ack.ok, detail: ack.detail, delivery, messageId, taskId };
+  }
+
+  async taskMessages(rootTaskId: string): Promise<unknown> {
+    return this.chats.taskMessages(rootTaskId);
+  }
+
+  /** 会话列表（置顶优先；归档仅在显式请求时包含） */
+  async chatList(includeArchived = false): Promise<unknown> {
+    return this.chats.list({ includeArchived });
+  }
+
+  async chatSearch(
+    query: string,
+    options: { includeArchived: boolean; limit: number; signal: AbortSignal },
+  ): Promise<unknown> {
+    return { results: await this.chats.searchMessages(query, options) };
+  }
+
+  async chatHistoryAround(
+    peerKey: string,
+    messageId: string,
+    context = 40,
+  ): Promise<unknown | null> {
+    const messages = await this.chats.historyAround(peerKey, messageId, context);
+    return messages === null ? null : { peerKey, messages };
+  }
+
+  async setChatArchived(peerKey: string, archived: boolean): Promise<boolean> {
+    return this.chats.setArchived(peerKey, archived);
+  }
+
+  async setChatPinned(peerKey: string, pinned: boolean): Promise<boolean> {
+    return this.chats.setPinned(peerKey, pinned);
+  }
+
+  async deleteChat(peerKey: string): Promise<boolean> {
+    return this.chats.deleteConversation(peerKey);
   }
 
   /** 某会话消息流 + 清未读（同时滑动抑制该会话桌面通知——正盯着看的会话不再弹） */
@@ -410,6 +590,119 @@ export class YuyiService {
 
   /** 会话通知抑制表（peerKey → 抑制截止时刻；会话页聚焦时桌面通知静默） */
   private notifySuppressUntil = new Map<string, number>();
+
+  /** UI v2 P1：显式清未读（POST /chat/mark-read） */
+  async markConversationRead(peerKey: string): Promise<void> {
+    await this.chats?.markRead(peerKey);
+  }
+
+  private mutedChatPeers: Set<string> | null = null;
+
+  private readMutedChatPeers(): Set<string> {
+    if (this.mutedChatPeers) return this.mutedChatPeers;
+    const path = join(
+      this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
+      "chat-mutes.json",
+    );
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+      this.mutedChatPeers = new Set(
+        Array.isArray(parsed)
+          ? parsed.filter((value): value is string => typeof value === "string")
+          : [],
+      );
+    } catch {
+      this.mutedChatPeers = new Set();
+    }
+    return this.mutedChatPeers;
+  }
+
+  isChatMuted(peerKey: string): boolean {
+    return this.readMutedChatPeers().has(peerKey);
+  }
+
+  setChatMuted(peerKey: string, muted: boolean): void {
+    const peers = this.readMutedChatPeers();
+    if (muted) peers.add(peerKey);
+    else peers.delete(peerKey);
+    const path = join(
+      this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
+      "chat-mutes.json",
+    );
+    writeFileSync(path, JSON.stringify([...peers]), { mode: 0o600 });
+  }
+
+  /** UI v2 P1：agent 定位（深链预选；name→绑定→agentManager 投影） */
+  locateAgent(name: string): {
+    found: boolean;
+    agentId?: string;
+    paseoAgentId?: string;
+    workspaceId?: string;
+    cwd?: string;
+    title?: string | null;
+  } {
+    const binding = [...this.byPaseo.values()].find((b) => b.name === name);
+    if (!binding) return { found: false };
+    try {
+      const agent = this.opts.agentManager.getAgent(binding.paseoAgentId);
+      return {
+        found: true,
+        agentId: binding.agentId,
+        paseoAgentId: binding.paseoAgentId,
+        workspaceId: agent?.workspaceId ?? undefined,
+        cwd: agent?.cwd ?? undefined,
+        title: agent?.config?.title ?? null,
+      };
+    } catch {
+      return { found: true, agentId: binding.agentId, paseoAgentId: binding.paseoAgentId };
+    }
+  }
+
+  private chatEventListeners = new Set<
+    (event: ConversationStoreEvent | YuyiRuntimeEvent) => void
+  >();
+  private chatStoreSubscription: (() => void) | null = null;
+  private lastStateFingerprint = "";
+  private lastTurnBusy = new Map<string, boolean>();
+
+  subscribeChatEvents(
+    listener: (event: ConversationStoreEvent | YuyiRuntimeEvent) => void,
+  ): () => void {
+    this.chatEventListeners.add(listener);
+    return () => this.chatEventListeners.delete(listener);
+  }
+
+  private emitChatEvent(event: ConversationStoreEvent | YuyiRuntimeEvent): void {
+    for (const listener of this.chatEventListeners) {
+      try {
+        listener(event);
+      } catch {
+        // 单个 SSE 订阅失败不影响 daemon 或其他监听者
+      }
+    }
+  }
+
+  private recordStateEvents(agents: Array<Record<string, unknown>>): void {
+    const fingerprint = JSON.stringify(agents);
+    if (this.lastStateFingerprint && fingerprint !== this.lastStateFingerprint) {
+      this.emitChatEvent({ kind: "peers-changed", peerKey: "*" });
+    }
+    this.lastStateFingerprint = fingerprint;
+    for (const agent of agents) {
+      if (typeof agent.agentId !== "string" || typeof agent.name !== "string") continue;
+      const peerKey = `${agent.agentId}:${agent.name}`;
+      const busy = (agent.activity as { busy?: unknown } | undefined)?.busy;
+      if (typeof busy !== "boolean") {
+        this.lastTurnBusy.delete(peerKey);
+        continue;
+      }
+      const previous = this.lastTurnBusy.get(peerKey);
+      if (previous !== undefined && previous !== busy) {
+        this.emitChatEvent({ kind: "turn-changed", peerKey, busy });
+      }
+      this.lastTurnBusy.set(peerKey, busy);
+    }
+  }
 
   notifySuppress(peerKey: string, ttlMs: number): void {
     this.notifySuppressUntil.set(peerKey, Date.now() + Math.min(Math.max(ttlMs, 0), 60_000));
@@ -648,6 +941,24 @@ export class YuyiService {
       log: (msg) => this.logger.info(msg),
       deliverToAgent: (binding, message) => this.deliverToAgent(binding, message),
       onDeviceControl: (op, agentId, opts) => this.handleDeviceControl(op, agentId, opts),
+      onTurnEvent: (frame) => this.turnsByReplyTo.apply(frame),
+      onApprovalRequest: (frame) => {
+        if (!frame.approvalId || !frame.summary || !frame.expiresAt) return;
+        this.approvals.registerExternal({
+          approvalId: frame.approvalId,
+          agentId: frame.agentId,
+          summary: frame.summary,
+          expiresAt: frame.expiresAt,
+        });
+      },
+      onApprovalResult: (frame) => {
+        void this.approvals.applyResult({
+          approvalId: frame.approvalId,
+          decision: frame.decision,
+          state: frame.state,
+          note: frame.note,
+        });
+      },
     });
     // 初始绑定：持久层扫描（注册表懒加载，listAgents 只含已初始化 agent）+ 内存扫描
     this.rescanBindings();
@@ -670,6 +981,8 @@ export class YuyiService {
       this.opts.agentStoragePath ?? join(homedir(), ".yuyi-desk"),
       (m) => this.logger.info(m),
     );
+    this.chatStoreSubscription?.();
+    this.chatStoreSubscription = this.chats.subscribe((event) => this.emitChatEvent(event));
     // UI v2 批次1（状态反馈 G3）：3s inboxCount 廉价探针（limit=0 零副作用）——
     // 计数变化才全量 drain（归组+ack）；15s 强制对账一次兜底防漏。回信可见延迟
     // 30s（daemon 15s+App 15s 串联）→ daemon 侧 ≤3s。
@@ -698,6 +1011,8 @@ export class YuyiService {
     }
     this.unsubscribeAgents?.();
     this.unsubscribeAgents = null;
+    this.chatStoreSubscription?.();
+    this.chatStoreSubscription = null;
     this.link?.stop();
     this.link = null;
     this.byPaseo.clear();
@@ -733,6 +1048,7 @@ export class YuyiService {
         gate: { agents: gateAgents },
         claimedAgents: [...this.claimedTokens.keys()],
       });
+      this.recordStateEvents(gateAgents);
     } catch (error) {
       this.logger.debug({ err: String(error) }, "device/state report skipped");
     }
@@ -1132,8 +1448,22 @@ export class YuyiService {
           hubId: message.id,
           ...(message.replyTo ? { replyTo: message.replyTo } : {}),
           ...(message.taskId ? { taskId: message.taskId } : {}),
+          ...(message.parentTaskId ? { parentTaskId: message.parentTaskId } : {}),
         },
       );
+      if (message.taskId) {
+        await this.chats.appendTaskMessage({
+          id: randomUUID(),
+          at: message.time ?? Date.now(),
+          dir: "in",
+          text: message.text ?? "",
+          from: message.from as unknown as Record<string, unknown>,
+          hubId: message.id,
+          taskId: message.taskId,
+          ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+          ...(message.parentTaskId ? { parentTaskId: message.parentTaskId } : {}),
+        });
+      }
       return;
     }
   }
@@ -1178,6 +1508,34 @@ export class YuyiService {
     return target.trim().toLowerCase() || "unknown";
   }
 
+  private async recordInjectionEvent(
+    binding: YuyiBinding,
+    message: YuyiMessage,
+    result: { ok: boolean; detail?: string },
+  ): Promise<void> {
+    if (!this.chats) return;
+    const at = Date.now();
+    await this.chats.append(
+      {
+        key: `${binding.agentId}:${binding.name}`,
+        title: binding.name,
+        kind: "agent",
+        role: "worker",
+      },
+      {
+        id: randomUUID(),
+        at,
+        dir: "in",
+        kind: "system",
+        text: result.ok
+          ? `⟳ ${new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 已注入 ${binding.name}（运行中消息将转向处理）`
+          : `✗ ${new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 注入 ${binding.name} 失败：${result.detail ?? "未知错误"}`,
+        from: { name: "御驿", role: "system", agentId: binding.agentId },
+        ...(message.taskId ? { taskId: message.taskId } : {}),
+      },
+    );
+  }
+
   private async deliverToAgent(
     binding: YuyiBinding,
     message: YuyiMessage,
@@ -1215,11 +1573,30 @@ export class YuyiService {
         setTimeout(() => resolve({ ok: true, detail: undefined }), 5000),
       ),
     ]);
+    void injection
+      .then((result) => this.recordInjectionEvent(binding, message, result))
+      .catch(() => undefined);
     if (settled.ok) {
       this.logger.info(
         { from: message.from.name ?? message.from.agentId, to: binding.name },
         "Yuyi deliver injected",
       );
+      // ack-update 修正（UI v2 P1）：5s 快速受理已回 ok，注入 settle 失败时向
+      // 发送方会话追加修正行（App 下轮轮询即见 S1→S5′，假阳性最多活一个轮询周期）
+      if (settled.detail === undefined) {
+        void injection.then(async (r) => {
+          if (r.ok) return undefined;
+          const senderKey = this.peerKeyOfFrom(message.from ?? {});
+          await this.chats
+            ?.appendAckUpdate(senderKey, message.id, {
+              ok: false,
+              delivery: "failed",
+              detail: `injection failed: ${r.detail ?? ""}`,
+            })
+            .catch(() => undefined);
+          return undefined;
+        });
+      }
       if (message.expectReply) {
         // 快速受理后注入仍在进行（agent 懒加载/冷启动）——autoReply 必须等
         // 注入 settle（agent 实体就位）再启动，否则 waitForAgentRunStart 找不到实体
@@ -1239,52 +1616,95 @@ export class YuyiService {
   /** 等 run start → 等 finish → 以绑定身份回信（notify 模式，replyTo 关联原消息） */
   private async autoReply(binding: YuyiBinding, message: YuyiMessage): Promise<void> {
     const manager = this.opts.agentManager;
-    try {
-      this.logger.info({ replyTo: message.id }, "Yuyi auto-reply wait start");
-      await waitForAgentRunStartWithTimeout(manager, binding.paseoAgentId);
-      const wait = await manager.waitForAgentEvent(binding.paseoAgentId, {
-        waitForActive: true,
-      });
-      this.logger.info(
-        { status: wait.status, permission: Boolean(wait.permission) },
-        "Yuyi auto-reply wait done",
-      );
-      const text = wait.permission
-        ? "（执行已暂停：等待权限确认，暂无最终结果）"
-        : wait.lastMessage?.trim() || "（执行完成，无文本输出）";
-      if (!this.link || !this.cachedConfig) {
-        return;
-      }
-      const reply: YuyiMessage = {
-        id: `yuyidesk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-        mode: "notify",
-        text,
-        from: {
-          device: this.cachedConfig.device,
-          agentId: binding.agentId,
-          sessionID: `${binding.name}:${binding.paseoAgentId}`,
-          name: binding.name,
-        },
-        to: { target: replyTarget(message) },
-        time: Date.now(),
-        replyTo: message.id,
-        ...(message.taskId ? { taskId: message.taskId } : {}),
-        ...(message.traceId ? { traceId: message.traceId } : {}),
-        ...(typeof message.hopCount === "number" ? { hopCount: message.hopCount } : {}),
-      };
-      void this.observeAgentTraffic(binding, reply, "out");
-      const ack = await this.link.sendFromBinding(binding, reply);
-      this.logger.info(
-        { ok: ack.ok, detail: ack.detail },
-        ack.ok ? "Yuyi auto-reply sent" : "Yuyi auto-reply send failed",
-      );
-    } catch (error) {
-      this.logger.warn(
-        { err: error, paseoAgentId: binding.paseoAgentId },
-        "Yuyi auto-reply failed",
-      );
-    }
+    const link = this.link;
+    const config = this.cachedConfig;
+    await runAgentTurn({
+      waitForRunStart: async () => {
+        this.logger.info({ replyTo: message.id }, "Yuyi auto-reply wait start");
+        await waitForAgentRunStartWithTimeout(manager, binding.paseoAgentId);
+      },
+      waitForFinish: async () => {
+        const wait = await manager.waitForAgentEvent(binding.paseoAgentId, { waitForActive: true });
+        this.logger.info(
+          { status: wait.status, permission: Boolean(wait.permission) },
+          "Yuyi auto-reply wait done",
+        );
+        if (wait.permission) {
+          try {
+            await this.approvals.request({
+              agentId: binding.paseoAgentId,
+              fromAgentId: binding.agentId,
+              permission: wait.permission,
+              send: async (input) => {
+                if (!link) return { ok: false, detail: "yuyi hub offline" };
+                return link.requestApproval(binding, input);
+              },
+            });
+          } catch (error) {
+            this.logger.warn({ err: error, replyTo: message.id }, "Yuyi approval request failed");
+          }
+        }
+        return wait;
+      },
+      sendStarted: async () => {
+        if (!link) throw new Error("yuyi hub offline");
+        await link.sendTurnStarted(binding, { replyTo: message.id, taskId: message.taskId });
+      },
+      sendFinished: async (outcome) => {
+        if (!link) throw new Error("yuyi hub offline");
+        await link.sendTurnFinished(binding, {
+          replyTo: message.id,
+          taskId: message.taskId,
+          outcome,
+        });
+      },
+      sendReply: async (text) => {
+        if (!link || !config) return { ok: false, detail: "yuyi hub offline" };
+        const reply: YuyiMessage = {
+          id: `yuyidesk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          mode: "notify",
+          text,
+          from: {
+            device: config.device,
+            agentId: binding.agentId,
+            sessionID: `${binding.name}:${binding.paseoAgentId}`,
+            name: binding.name,
+          },
+          to: { target: replyTarget(message) },
+          time: Date.now(),
+          replyTo: message.id,
+          ...(message.taskId ? { taskId: message.taskId } : {}),
+          ...(message.traceId ? { traceId: message.traceId } : {}),
+          ...(typeof message.hopCount === "number" ? { hopCount: message.hopCount } : {}),
+        };
+        void this.observeAgentTraffic(binding, reply, "out");
+        const ack = await link.sendFromBinding(binding, reply);
+        this.logger.info(
+          { ok: ack.ok, detail: ack.detail },
+          ack.ok ? "Yuyi auto-reply sent" : "Yuyi auto-reply send failed",
+        );
+        return ack;
+      },
+      onReportError: (error) => {
+        this.logger.warn({ err: error, replyTo: message.id }, "Yuyi turn event report failed");
+      },
+    });
   }
+}
+
+/** 伪群广播前置校验（broadcastAsOwner 复杂度拆分）：返回错误文案或 undefined */
+function validateBroadcastRequest(
+  title: string,
+  text: string,
+  taskId: string,
+  state: { connected: boolean; broadcastSupported: boolean },
+): string | undefined {
+  if (!state.connected) return "yuyi 链接未激活";
+  if (!state.broadcastSupported) return "Hub 不支持 owner-broadcast";
+  if (!title || !text || !taskId) return "任务标题、正文和 taskId 必填";
+  const current = taskView(taskId);
+  if (current?.closed || current?.archived) return "任务段已关闭或归档";
+  return undefined;
 }
 
 /** Owner 直发 ack → 结构化投递分类（UI v2 状态机 G2：daemon 一次判定） */

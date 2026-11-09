@@ -119,4 +119,18 @@ describe("desktop-updates helpers", () => {
     );
     expect(buildMacAppleSiliconDownloadUrl(null)).toBeNull();
   });
+
+  it("does not run the Electron updater in a Tauri shell without an updater", async () => {
+    vi.resetModules();
+    vi.doMock("react-native", () => ({ Platform: { OS: "web" } }));
+    vi.doMock("@/desktop/electron/host", () => ({ getElectronHost: () => ({}) }));
+    vi.doMock("@/yuyi/tauri-bridge", () => ({ isYuyiTauriShell: () => true }));
+    try {
+      const { shouldShowDesktopUpdateSection } = await import("./desktop-updates");
+      expect(shouldShowDesktopUpdateSection()).toBe(false);
+    } finally {
+      vi.doUnmock("@/desktop/electron/host");
+      vi.doUnmock("@/yuyi/tauri-bridge");
+    }
+  });
 });

@@ -53,6 +53,15 @@ function getTauriCore(): ((cmd: string, args?: unknown) => Promise<unknown>) | n
   return null;
 }
 
+function getTauriEventListen():
+  | ((event: string, handler: (payload: unknown) => void) => Promise<() => void>)
+  | null {
+  const tauri = (globalThis as Record<string, unknown>).__TAURI__ as
+    | { event?: { listen?: unknown } }
+    | undefined;
+  return typeof tauri?.event?.listen === "function" ? (tauri.event.listen as never) : null;
+}
+
 /** Electron DesktopWindowBridge 的 Tauri 适配（onResized 用轮询合成） */
 function createWindowBridge() {
   const tw = () => getTauriWindow();
@@ -108,6 +117,15 @@ export function installTauriDesktopBridge(): void {
     windowChromeMode: "custom-windows",
     window: { getCurrentWindow: createWindowBridge },
     invoke: createInvokeBridge(),
+    events: {
+      on: async (event: string, handler: (payload: unknown) => void) => {
+        const listen = getTauriEventListen();
+        if (!listen) {
+          throw new Error("Desktop event API is unavailable.");
+        }
+        return await listen(event, handler);
+      },
+    },
   };
 }
 
@@ -209,6 +227,14 @@ function createInvokeBridge() {
           return null;
         }
         return (await tauriCore("yuyi_local_credential", { listen })) as never;
+      }
+      case "desktop_get_system_idle_time":
+      case "garbage_collect_attachment_files": {
+        const tauriCore = getTauriCore();
+        if (!tauriCore) {
+          throw new Error("Tauri invoke unavailable");
+        }
+        return await tauriCore(command, args);
       }
       default:
         throw new Error(`Desktop command not available in yuyi shell: ${command}`);

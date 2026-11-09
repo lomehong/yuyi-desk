@@ -2,16 +2,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { CircleOff, Search, X } from "lucide-react-native";
+import { CircleOff, Search } from "lucide-react-native";
+import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { PressHighlight } from "@/components/ui/press-highlight";
-import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { EditingTextInput } from "@/components/ui/text-input";
 import type { Theme } from "@/styles/theme";
 import { AgentAvatar } from "./agent-avatar";
 import { moveDirectoryCursor, type DirectoryEntry, type DirectoryGroup } from "./wechat-model";
 
 const ThemedSearch = withUnistyles(Search);
-const ThemedX = withUnistyles(X);
 const ThemedOffline = withUnistyles(CircleOff);
 const mutedIcon = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
@@ -22,6 +21,7 @@ export function DirectoryOverlay({
   onFilterChange,
   onPick,
   onClose,
+  onCreateTask,
   titleKey = "wechat.contactAgent",
 }: {
   visible: boolean;
@@ -30,10 +30,13 @@ export function DirectoryOverlay({
   onFilterChange: (value: string) => void;
   onPick: (entry: DirectoryEntry) => void;
   onClose: () => void;
+  onCreateTask?: (entries: DirectoryEntry[]) => void;
   titleKey?: string;
 }): ReactElement | null {
   const { t } = useTranslation();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [multiMode, setMultiMode] = useState(false);
+  const [intentKeys, setIntentKeys] = useState<Set<string>>(new Set());
   const filteredGroups = useMemo(() => {
     const query = filter.trim().toLowerCase();
     if (!query) return groups;
@@ -49,7 +52,26 @@ export function DirectoryOverlay({
 
   useEffect(() => {
     setSelectedKey(null);
+    setMultiMode(false);
+    setIntentKeys(new Set());
   }, [filter, visible]);
+
+  const pickEntry = useCallback(
+    (entry: DirectoryEntry) => {
+      if (!multiMode) {
+        onPick(entry);
+        return;
+      }
+      if (!entry.key) return;
+      setIntentKeys((current) => {
+        const next = new Set(current);
+        if (next.has(entry.key!)) next.delete(entry.key!);
+        else next.add(entry.key!);
+        return next;
+      });
+    },
+    [multiMode, onPick],
+  );
 
   const handleKeyPress = useCallback(
     (event: { nativeEvent?: { key?: string }; preventDefault?: () => void }) => {
@@ -71,72 +93,101 @@ export function DirectoryOverlay({
         const entry = filteredGroups
           .flatMap((group) => group.entries)
           .find((item) => item.key === selectedKey && !item.disabled);
-        if (entry) onPick(entry);
+        if (entry) pickEntry(entry);
       }
     },
-    [filteredGroups, onClose, onPick, selectedKey],
+    [filteredGroups, onClose, pickEntry, selectedKey],
   );
 
-  if (!visible) return null;
+  const header = useMemo<SheetHeader>(() => ({ title: t(titleKey) }), [t, titleKey]);
+  const toggleMultiMode = useCallback(() => setMultiMode((value) => !value), []);
+  const createBroadcastTask = useCallback(() => {
+    if (!onCreateTask) return;
+    onCreateTask(
+      filteredGroups
+        .flatMap((group) => group.entries)
+        .filter((entry) => entry.key && intentKeys.has(entry.key)),
+    );
+  }, [filteredGroups, intentKeys, onCreateTask]);
   return (
-    <View style={styles.overlay} testID="wechat-directory-overlay">
-      <PressHighlight
-        style={styles.backdrop}
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel={t("common.actions.close")}
-      />
-      <View style={styles.center} pointerEvents="box-none">
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{t(titleKey)}</Text>
-            <ToolbarButton label={t("common.actions.close")} onPress={onClose}>
-              <ThemedX size={16} uniProps={mutedIcon} />
-            </ToolbarButton>
-          </View>
-          <View style={styles.searchBox}>
-            <ThemedSearch size={14} uniProps={mutedIcon} />
-            <EditingTextInput
-              style={styles.searchInput}
-              initialValue={filter}
-              onChangeText={onFilterChange}
-              onKeyPress={handleKeyPress}
-              placeholder={t("wechat.directorySearch")}
-              autoFocus
-            />
-          </View>
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
-            {filteredGroups.map((group) => (
-              <View key={group.id}>
-                <Text style={styles.groupTitle}>
-                  {t(`wechat.directory.${group.id}`, { count: group.entries.length })}
-                </Text>
-                {group.entries.map((entry) => (
-                  <DirectoryRow
-                    key={entry.id}
-                    entry={entry}
-                    selected={entry.key !== null && entry.key === selectedKey}
-                    onPick={onPick}
-                  />
-                ))}
-              </View>
-            ))}
-            {filteredGroups.every((group) => group.entries.length === 0) ? (
-              <Text style={styles.empty}>{t("wechat.directoryEmpty")}</Text>
-            ) : null}
-          </ScrollView>
-        </View>
+    <AdaptiveModalSheet
+      header={header}
+      visible={visible}
+      onClose={onClose}
+      testID="wechat-directory-overlay"
+      desktopMaxWidth={420}
+      desktopHeight={560}
+      scrollable={false}
+      contentStyle={styles.content}
+    >
+      <View style={styles.searchBox}>
+        <ThemedSearch size={14} uniProps={mutedIcon} />
+        <EditingTextInput
+          style={styles.searchInput}
+          initialValue={filter}
+          onChangeText={onFilterChange}
+          onKeyPress={handleKeyPress}
+          placeholder={t("wechat.directorySearch")}
+          autoFocus
+        />
       </View>
-    </View>
+      {onCreateTask ? (
+        <View style={styles.multiBar}>
+          <PressHighlight
+            accessibilityLabel={t("wechat.multiSelectAgents")}
+            onPress={toggleMultiMode}
+          >
+            <Text style={styles.multiText}>{t("wechat.multiSelectAgents")}</Text>
+          </PressHighlight>
+          {multiMode ? <Text style={styles.hint}>{t("wechat.broadcastEveryone")}</Text> : null}
+          {multiMode ? (
+            <PressHighlight
+              accessibilityLabel={t("wechat.createTaskBroadcast")}
+              disabled={intentKeys.size === 0}
+              onPress={createBroadcastTask}
+            >
+              <Text style={styles.multiText}>{t("wechat.createTaskBroadcast")}</Text>
+            </PressHighlight>
+          ) : null}
+        </View>
+      ) : null}
+      <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
+        {filteredGroups.map((group) => (
+          <View key={group.id}>
+            <Text style={styles.groupTitle}>
+              {t(`wechat.directory.${group.id}`, { count: group.entries.length })}
+            </Text>
+            {group.entries.map((entry) => (
+              <DirectoryRow
+                key={entry.id}
+                entry={entry}
+                online={group.id !== "offline"}
+                selected={
+                  multiMode
+                    ? Boolean(entry.key && intentKeys.has(entry.key))
+                    : entry.key !== null && entry.key === selectedKey
+                }
+                onPick={pickEntry}
+              />
+            ))}
+          </View>
+        ))}
+        {filteredGroups.every((group) => group.entries.length === 0) ? (
+          <Text style={styles.empty}>{t("wechat.directoryEmpty")}</Text>
+        ) : null}
+      </ScrollView>
+    </AdaptiveModalSheet>
   );
 }
 
 function DirectoryRow({
   entry,
+  online,
   selected,
   onPick,
 }: {
   entry: DirectoryEntry;
+  online: boolean;
   selected: boolean;
   onPick: (entry: DirectoryEntry) => void;
 }): ReactElement {
@@ -176,38 +227,19 @@ function DirectoryRow({
         </Text>
       </View>
       {entry.continued ? <Text style={styles.continued}>{t("wechat.continue")}</Text> : null}
+      {online ? (
+        <View
+          style={styles.onlineDot}
+          accessibilityRole="image"
+          accessibilityLabel={t("agentChat.peer.online")}
+        />
+      ) : null}
     </PressHighlight>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  overlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60 },
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: "rgba(0,0,0,0.52)",
-  },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: theme.spacing[6] },
-  card: {
-    width: 420,
-    maxWidth: "100%",
-    maxHeight: 560,
-    backgroundColor: theme.colors.surface1,
-    borderRadius: theme.borderRadius["2xl"],
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    padding: theme.spacing[4],
-    ...theme.shadow.lg,
-  },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.medium,
-  },
+  content: { paddingHorizontal: theme.spacing[4], paddingBottom: theme.spacing[4] },
   searchBox: {
     height: 32,
     flexDirection: "row",
@@ -247,6 +279,21 @@ const styles = StyleSheet.create((theme) => ({
   rowTitle: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   rowSubtitle: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   continued: { color: theme.colors.accentBright, fontSize: theme.fontSize.code },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.statusDotSuccess,
+  },
+  multiBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+  },
+  multiText: { color: theme.colors.accentBright, fontSize: theme.fontSize.sm },
+  hint: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.code },
   empty: {
     color: theme.colors.foregroundMuted,
     textAlign: "center",

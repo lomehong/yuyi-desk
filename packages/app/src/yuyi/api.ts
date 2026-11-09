@@ -75,10 +75,12 @@ export interface YuyiInbox {
 
 /** 「Agent 微信」M1：会话条目（daemon conversations.json 索引） */
 export interface YuyiChatEntry {
-  peer: { key: string; title: string; kind: "owner" | "agent" | "observe"; role?: string };
+  peer: { key: string; title: string; kind: "owner" | "agent" | "observe" | "task"; role?: string };
   lastAt: number;
   lastText: string;
   unread: number;
+  archivedAt?: number;
+  pinnedAt?: number;
   /** 末条方向（列表行「我:」前缀与状态微标用） */
   lastDir?: "out" | "in";
   /** 末条出向投递快照（状态微标：处理中/失败等） */
@@ -102,18 +104,99 @@ export interface YuyiChatMessage {
   ack?: DeliveryAck;
   /** 本地 ack 时间（乐观消息；用于 S1 计时） */
   ackAt?: number;
+  /** 真实注入事件等系统行 */
+  kind?: "system";
   /** 协议引用链（结果卡引用行；历史消息无此字段不渲染） */
   replyTo?: string;
   /** 任务段 id（旁观回合分组；无则归「未关联任务」） */
   taskId?: string;
+  parentTaskId?: string;
+}
+
+export interface OwnerBroadcastResult {
+  ok: boolean;
+  delivery: "injected" | "mailed" | "delivered" | "failed";
+  messageId?: string;
+  taskId: string;
+  detail?: string;
+}
+
+export interface YuyiTaskIndex {
+  taskId: string;
+  rootTaskId?: string;
+  participants: string[];
+  messageCount: number;
+  firstAt: number;
+  lastAt: number;
+  segments?: Array<{
+    taskId: string;
+    parentTaskId?: string;
+    messageCount: number;
+    firstAt: number;
+    lastAt: number;
+  }>;
+}
+
+export type YuyiTurnOutcome =
+  | "started"
+  | "replied"
+  | "completed-without-reply"
+  | "failed"
+  | "waiting-permission";
+
+export interface YuyiTurnProjection {
+  replyTo: string;
+  agentId: string;
+  taskId?: string;
+  outcome: YuyiTurnOutcome;
+  at: number;
+}
+
+export interface YuyiApproval {
+  approvalId: string;
+  agentId: string;
+  fromAgentId?: string;
+  requestId: string;
+  summary: string;
+  expiresAt: number;
+  state: "pending" | "approved" | "denied" | "expired";
+  error?: string;
+  note?: string;
+  remote?: boolean;
+}
+
+export interface YuyiChatSearchResult {
+  peer: YuyiChatEntry["peer"];
+  message: YuyiChatMessage;
+  summary: string;
+  archived: boolean;
 }
 
 export interface YuyiChatClient {
-  fetchChatList: () => Promise<YuyiChatEntry[]>;
+  fetchChatList: (includeArchived?: boolean) => Promise<YuyiChatEntry[]>;
   fetchChatHistory: (
     peerKey: string,
     tail?: number,
+    around?: string,
   ) => Promise<{ peerKey: string; messages: YuyiChatMessage[] }>;
+  searchChatMessages: (
+    query: string,
+    options: { includeArchived?: boolean; limit?: number; signal?: AbortSignal },
+  ) => Promise<{ results: YuyiChatSearchResult[] }>;
+  setChatArchived: (peerKey: string, archived: boolean) => Promise<void>;
+  setChatPinned: (peerKey: string, pinned: boolean) => Promise<void>;
+  deleteChat: (peerKey: string) => Promise<void>;
+  fetchTask?: (taskId: string) => Promise<{ task?: YuyiTaskIndex }>;
+  fetchTaskMessages?: (
+    rootTaskId: string,
+  ) => Promise<{ rootTaskId: string; messages: YuyiChatMessage[] }>;
+  broadcastChat?: (input: {
+    title: string;
+    text: string;
+    taskId: string;
+    parentTaskId?: string;
+    myName?: string;
+  }) => Promise<OwnerBroadcastResult>;
   sendChat: (
     to: string,
     text: string,
@@ -134,16 +217,37 @@ export interface YuyiChatClient {
   ) => Promise<{ peerKey: string; messages: YuyiChatMessage[] }>;
   /** 对端「处理中」真实信号（本机 agent 可知；远端 busy=null 未知） */
   fetchChatTurns: (peerKey: string) => Promise<{ peerKey: string; busy: boolean | null }>;
+  /** 显式清未读（P1；history 仍有隐式清读兜底） */
+  markChatRead: (peerKey: string) => Promise<void>;
+  /** 旁观静音持久化（App 与 daemon 同步；不删除消息） */
+  setChatMuted: (peerKey: string, muted: boolean) => Promise<void>;
   /** 会话页聚焦抑制（滑动 TTL，桌面通知静默） */
   notifySuppress: (peerKey: string, ttlMs?: number) => Promise<void>;
 }
 
+export interface YuyiAgentLocation {
+  found: boolean;
+  agentId?: string;
+  paseoAgentId?: string;
+  workspaceId?: string;
+  cwd?: string;
+  title?: string | null;
+}
+
 export interface YuyiClient {
   origin: string | null;
+  bearer: string | null;
+  locateAgent: (name: string) => Promise<YuyiAgentLocation>;
   fetchStatus: () => Promise<YuyiStatus>;
   fetchPeers: () => Promise<YuyiPeersEntry[]>;
   fetchInbox: () => Promise<YuyiInbox>;
   ackInbox: (binding: string, ids: string[]) => Promise<{ ok: boolean; detail?: string }>;
+  fetchApprovals?: () => Promise<{ approvals: YuyiApproval[] }>;
+  resolveApproval?: (input: {
+    approvalId: string;
+    decision: "approved" | "denied";
+    note?: string;
+  }) => Promise<{ ok: boolean; detail?: string }>;
   chats: YuyiChatClient;
 }
 
@@ -179,6 +283,16 @@ export function createYuyiClient(host: HostProfile): YuyiClient {
   const bearer = host.password ? host.password : null;
   return {
     origin,
+    bearer,
+    locateAgent: (name) => {
+      if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+      return request<YuyiAgentLocation>(
+        origin,
+        `/api/yuyi/agent-locate?name=${encodeURIComponent(name)}`,
+        {},
+        bearer,
+      );
+    },
     fetchStatus: () => {
       if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
       return request<YuyiStatus>(origin, "/api/yuyi/status", {}, bearer);
@@ -200,24 +314,105 @@ export function createYuyiClient(host: HostProfile): YuyiClient {
         bearer,
       );
     },
+    fetchApprovals: () => {
+      if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+      return request<{ approvals: YuyiApproval[] }>(origin, "/api/yuyi/approvals", {}, bearer);
+    },
+    resolveApproval: (input) => {
+      if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+      return request<{ ok: boolean; detail?: string }>(
+        origin,
+        "/api/yuyi/approval/resolve",
+        { method: "POST", body: JSON.stringify(input) },
+        bearer,
+      );
+    },
     // 「Agent 微信」M1：Owner 直发 + 会话面（daemon /api/yuyi/chat/*）
     chats: {
-      fetchChatList: () => {
+      fetchChatList: (includeArchived = false) => {
         if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
         return request<{ conversations: YuyiChatEntry[] }>(
           origin,
-          "/api/yuyi/chat/list",
+          `/api/yuyi/chat/list${includeArchived ? "?includeArchived=true" : ""}`,
           {},
           bearer,
         ).then((r) => r.conversations);
       },
-      fetchChatHistory: (peerKey, tail) => {
+      fetchChatHistory: (peerKey, tail, around) => {
         if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
-        const q = tail ? `?tail=${tail}` : "";
+        const params = new URLSearchParams({ peer: peerKey });
+        if (tail) params.set("tail", String(tail));
+        if (around) params.set("around", around);
         return request<{ peerKey: string; messages: YuyiChatMessage[] }>(
           origin,
-          `/api/yuyi/chat/history?peer=${encodeURIComponent(peerKey)}${q}`,
+          `/api/yuyi/chat/history?${params}`,
           {},
+          bearer,
+        );
+      },
+      searchChatMessages: (query, options) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        const params = new URLSearchParams({ q: query });
+        if (options.includeArchived) params.set("includeArchived", "true");
+        if (options.limit) params.set("limit", String(options.limit));
+        return request<{ results: YuyiChatSearchResult[] }>(
+          origin,
+          `/api/yuyi/chat/search?${params}`,
+          { signal: options.signal },
+          bearer,
+        );
+      },
+      setChatArchived: (peerKey, archived) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean }>(
+          origin,
+          "/api/yuyi/chat/archive",
+          { method: "POST", body: JSON.stringify({ peerKey, archived }) },
+          bearer,
+        ).then(() => undefined);
+      },
+      setChatPinned: (peerKey, pinned) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean }>(
+          origin,
+          "/api/yuyi/chat/pin",
+          { method: "POST", body: JSON.stringify({ peerKey, pinned }) },
+          bearer,
+        ).then(() => undefined);
+      },
+      deleteChat: (peerKey) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean }>(
+          origin,
+          `/api/yuyi/chat?peer=${encodeURIComponent(peerKey)}`,
+          { method: "DELETE" },
+          bearer,
+        ).then(() => undefined);
+      },
+      fetchTask: (taskId) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ task?: YuyiTaskIndex }>(
+          origin,
+          `/api/yuyi/task?taskId=${encodeURIComponent(taskId)}`,
+          {},
+          bearer,
+        );
+      },
+      fetchTaskMessages: (rootTaskId) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ rootTaskId: string; messages: YuyiChatMessage[] }>(
+          origin,
+          `/api/yuyi/task/messages?root=${encodeURIComponent(rootTaskId)}`,
+          {},
+          bearer,
+        );
+      },
+      broadcastChat: (input) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<OwnerBroadcastResult>(
+          origin,
+          "/api/yuyi/chat/broadcast",
+          { method: "POST", body: JSON.stringify(input) },
           bearer,
         );
       },
@@ -256,6 +451,24 @@ export function createYuyiClient(host: HostProfile): YuyiClient {
           {},
           bearer,
         );
+      },
+      markChatRead: (peerKey) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean }>(
+          origin,
+          "/api/yuyi/chat/mark-read",
+          { method: "POST", body: JSON.stringify({ peerKey }) },
+          bearer,
+        ).then(() => undefined);
+      },
+      setChatMuted: (peerKey, muted) => {
+        if (!origin) return Promise.reject(new YuyiApiError("no http origin", 0));
+        return request<{ ok: boolean }>(
+          origin,
+          "/api/yuyi/chat/mute",
+          { method: "POST", body: JSON.stringify({ peerKey, muted }) },
+          bearer,
+        ).then(() => undefined);
       },
       // UI v2 聚焦抑制：会话页打开时静默该会话桌面通知（滑动 TTL）
       notifySuppress: (peerKey, ttlMs = 5000) => {

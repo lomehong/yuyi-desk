@@ -304,6 +304,18 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     when: { editable: false, terminal: false, commandCenter: false, focusScope: "other" },
     help: { id: "wechat-prev", section: "general", label: "Previous conversation" },
   },
+  {
+    id: "wechat-next-alt-down",
+    action: "wechat.conv.next",
+    combo: "Alt+ArrowDown",
+    when: { editable: false, terminal: false, commandCenter: false, focusScope: "other" },
+  },
+  {
+    id: "wechat-prev-alt-up",
+    action: "wechat.conv.prev",
+    combo: "Alt+ArrowUp",
+    when: { editable: false, terminal: false, commandCenter: false, focusScope: "other" },
+  },
   // --- Open project ---
   // Open project moved from Cmd+Shift+O to Cmd+O. The binding ids intentionally
   // keep their original "cmd-shift-o" / "ctrl-shift-o" names: user shortcut

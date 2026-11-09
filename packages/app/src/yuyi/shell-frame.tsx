@@ -21,10 +21,10 @@ import { WindowChromeRegion } from "@/utils/desktop-window";
 import { isYuyiTauriShell } from "@/yuyi/tauri-bridge";
 import { ModeSwitch } from "@/components/wechat/mode-switch";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
-import { topLevelModeStore } from "@/stores/wechat-mode-store";
+import { topLevelModeStore, wechatUiStore } from "@/stores/wechat-mode-store";
 import { useHosts } from "@/runtime/host-runtime";
-import { createYuyiClient } from "@/yuyi/api";
-import { resolveNotificationPeer } from "@/yuyi/notification-route";
+import { createYuyiClient, type YuyiChatEntry } from "@/yuyi/api";
+import { resolveNotificationTarget } from "@/yuyi/notification-route";
 import { router } from "expo-router";
 
 /** 卡片与容器边缘的缝宽（顶栏下方、右、下、内容与侧栏之间） */
@@ -69,6 +69,11 @@ export function YuyiSidebarToggle() {
   );
 }
 
+// 按会话 key 查 peer：模块级谓词提出嵌套回调，压平回调嵌套层级
+function findPeerByKey(conversations: YuyiChatEntry[], peerKey: string) {
+  return conversations.find((entry) => entry.peer.key === peerKey)?.peer;
+}
+
 function useNotificationOpenRoute(): void {
   const hosts = useHosts();
   const host = hosts[0];
@@ -89,16 +94,32 @@ function useNotificationOpenRoute(): void {
     if (!listen) return;
     let cancelled = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ peerKey?: string }>("yuyi:notification-open", (event) => {
+    void listen<{ peerKey?: string; approvalId?: string }>("yuyi:notification-open", (event) => {
       const peerKey = event.payload.peerKey;
-      if (!peerKey) return;
+      if (!peerKey && !event.payload.approvalId) return;
       void createYuyiClient(host)
         .chats.fetchChatList()
         .then((conversations) => {
-          const peer = resolveNotificationPeer(peerKey, conversations);
-          if (cancelled || !peer) return undefined;
+          const target = resolveNotificationTarget(
+            peerKey ?? "",
+            conversations,
+            event.payload.approvalId,
+          );
+          if (cancelled || !target) return undefined;
           topLevelModeStore.set("wechat");
-          topLevelModeStore.selectPeer(peer);
+          if (target.type === "task") {
+            topLevelModeStore.selectTask({
+              rootTaskId: target.rootTaskId,
+              title: target.title,
+              serverId: host.serverId,
+            });
+          } else if (target.type === "approval") {
+            const peer = target.peerKey ? findPeerByKey(conversations, target.peerKey) : undefined;
+            if (peer) topLevelModeStore.selectPeer({ ...peer, serverId: host.serverId });
+            wechatUiStore.openApproval(target.approvalId);
+          } else {
+            topLevelModeStore.selectPeer({ ...target.peer, serverId: host.serverId });
+          }
           router.push(`/h/${host.serverId}/wechat` as never);
           return undefined;
         })

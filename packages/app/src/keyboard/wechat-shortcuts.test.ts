@@ -50,6 +50,8 @@ describe("Agent 微信 shortcuts", () => {
   it("moves conversations with j/k only outside editable surfaces", () => {
     expect(match(event("j"))?.action).toBe("wechat.conv.next");
     expect(match(event("k"))?.action).toBe("wechat.conv.prev");
+    expect(match(event("ArrowDown", { altKey: true }))?.action).toBe("wechat.conv.next");
+    expect(match(event("ArrowUp", { altKey: true }))?.action).toBe("wechat.conv.prev");
     expect(match(event("j"), "message-input")).toBeNull();
   });
 

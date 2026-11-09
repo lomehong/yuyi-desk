@@ -13,7 +13,7 @@ function conversation(
   title: string,
   lastAt: number,
   unread = 0,
-  kind: "owner" | "agent" | "observe" = "agent",
+  kind: "owner" | "agent" | "observe" | "task" = "agent",
 ): YuyiChatEntry {
   return {
     peer: { key, title, kind },
@@ -57,6 +57,7 @@ describe("groupAgentRows", () => {
     const rows = groupAgentRows([conversation("agent-1:a", "Builder", 100, 120)]);
 
     expect(rows[0]?.unread).toBe(120);
+    expect(groupAgentRows([conversation("task:task_root", "任务", 999, 1, "task")])).toEqual([]);
     expect(formatUnreadCount(rows[0]?.unread ?? 0)).toBe("99+");
     expect(formatUnreadCount(99)).toBe("99");
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESKTOP_SIDEBAR_FILL_STYLE,
   canDesktopAppSidebarShare,
   resolveDesktopAppChromeLayout,
   resolveDesktopAppContentMinimum,
@@ -122,4 +123,8 @@ it("reserves room for Explorer and the workspace before showing app navigation",
       viewportWidth: 951,
     }),
   ).toBe(true);
+});
+
+it("fills the viewport so the footer stays anchored to the bottom", () => {
+  expect(DESKTOP_SIDEBAR_FILL_STYLE).toEqual({ flex: 1, minHeight: 0 });
 });

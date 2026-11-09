@@ -20,6 +20,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Logger } from "pino";
 import { z } from "zod";
 import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
+import { registerChatManagementRoutes } from "./yuyi/chat-management-routes.js";
 
 export type ListenTarget =
   | { type: "tcp"; host: string; port: number }
@@ -1492,6 +1493,38 @@ export async function createPaseoDaemon(
   });
 
   // yuyi fork M2b: 御驿读 API（经 daemon 单条 Hub 连接收口；bearer 鉴权同其余 /api）
+  // UI v2 P1：显式未读清零（乐观清零纠正；body {peerKey}）
+  app.post("/api/yuyi/chat/mark-read", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const body = req.body as { peerKey?: unknown };
+    const peerKey = typeof body.peerKey === "string" ? body.peerKey : "";
+    if (!peerKey) {
+      res.status(400).json({ error: "peerKey 必填" });
+      return;
+    }
+    void yuyiService.markConversationRead(peerKey).then(
+      () => res.json({ ok: true }),
+      (error: unknown) => res.status(502).json({ error: String(error) }),
+    );
+  });
+  // UI v2 P1：agent 定位（深链预选数据——name → agentId/paseoAgentId/cwd/title）
+  app.get("/api/yuyi/agent-locate", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const name = String(req.query.name ?? "").trim();
+    if (!name) {
+      res.status(400).json({ error: "name 必填" });
+      return;
+    }
+    res.json(yuyiService.locateAgent(name));
+  });
+  // UI v2 P2：搜索、归档/置顶/删除、around 历史与既有 SSE 共用同一鉴权闸门。
+  registerChatManagementRoutes(app, yuyiService);
   app.get("/api/yuyi/status", (_req, res) => {
     if (!yuyiService.mcpActive) {
       res.status(503).json({ error: "yuyi link inactive" });
@@ -1544,28 +1577,15 @@ export async function createPaseoDaemon(
       .then((ack) => res.json(ack))
       .catch((error) => res.status(502).json({ error: String(error) }));
   });
-  app.get("/api/yuyi/chat/list", async (_req, res) => {
+  app.get("/api/yuyi/chat/list", (req, res) => {
     if (!yuyiService.mcpActive) {
       res.status(503).json({ error: "yuyi link inactive" });
-      return;
-    }
-    res.json({ conversations: await yuyiService.chatList() });
-  });
-  app.get("/api/yuyi/chat/history", (req, res) => {
-    if (!yuyiService.mcpActive) {
-      res.status(503).json({ error: "yuyi link inactive" });
-      return;
-    }
-    const peerKey = String(req.query.peer ?? "").trim();
-    const tail = Number(req.query.tail ?? 200);
-    if (!peerKey) {
-      res.status(400).json({ error: "peer 必填" });
       return;
     }
     void yuyiService
-      .chatHistory(peerKey, Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 1000) : 200)
-      .then((r) => res.json(r))
-      .catch((error: unknown) => res.status(502).json({ error: String(error) }));
+      .chatList(req.query.includeArchived === "true")
+      .then((conversations) => res.json({ conversations }))
+      .catch((error) => res.status(502).json({ error: String(error) }));
   });
   app.get("/api/yuyi/chat/unread", async (_req, res) => {
     if (!yuyiService.mcpActive) {
@@ -1620,7 +1640,10 @@ export async function createPaseoDaemon(
       res.status(400).json({ error: "peer 必填" });
       return;
     }
-    res.json({ suppressed: yuyiService.isNotifySuppressed(peerKey) });
+    res.json({
+      suppressed: yuyiService.isNotifySuppressed(peerKey),
+      muted: yuyiService.isChatMuted(peerKey),
+    });
   });
   app.post("/api/yuyi/chat/notify-suppress", (req, res) => {
     if (!yuyiService.mcpActive) {
@@ -1636,6 +1659,24 @@ export async function createPaseoDaemon(
     }
     yuyiService.notifySuppress(peerKey, Number.isFinite(ttlMs) ? ttlMs : 5000);
     res.json({ ok: true });
+  });
+  app.post("/api/yuyi/chat/mute", (req, res) => {
+    if (!yuyiService.mcpActive) {
+      res.status(503).json({ error: "yuyi link inactive" });
+      return;
+    }
+    const body = req.body as { peerKey?: unknown; muted?: unknown };
+    const peerKey = typeof body.peerKey === "string" ? body.peerKey : "";
+    if (!peerKey || typeof body.muted !== "boolean") {
+      res.status(400).json({ error: "peerKey 与 muted 必填" });
+      return;
+    }
+    try {
+      yuyiService.setChatMuted(peerKey, body.muted);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
   });
   app.post("/api/yuyi/inbox/ack", (req, res) => {
     const body = req.body as { binding?: string; ids?: unknown };

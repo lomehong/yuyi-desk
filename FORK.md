@@ -217,6 +217,21 @@ cargo 增量指纹内——以后每次前端改动都要 touch 再 cargo build 
 - 验证：46+ 新测试全绿、两端 typecheck 0、oxlint 0/0、全量套件零回归、
   release 实机走查（身份卡/状态词/离线提示渲染确认）
 
+### Agent 微信 P1 全量 + M2 伪群/审批落地（2026-11-09，62f31319d）
+
+P1（01/04 文档 P1 清单全项）：daemon POST chat/mark-read、GET agent-locate、
+GET chat/events SSE（append/read/ack-update/peers/turn 五类事件+30s 心跳）、
+ack-update 修正（快速受理后注入失败→jsonl 修正行 latter-wins）、turn-events；
+app SSE 客户端 chat-events、会话切换下拉、未读分界线、selectedPeer 持久化
++isPeerStillAvailable 陈旧校验、Alt+↑↓ 导航、scrollIntoView、LinkifiedText、
+composer-actions、消息搜索（chat/search+UI）、会话管理（归档/置顶/删除）。
+M2（03 文档 §7）：审批卡三件（ApprovalCard/approval-service/store，Owner
+直发=见证）；伪群任务段（TaskConversationView/SegmentList/task-store/
+broadcastAsOwner target=\* 广播+taskId 段滚动+三笔账）+ TaskBroadcastComposer。
+验证：两端 typecheck 0；wechat 域 41+6 vitest 全绿；全量 6407 passed 零回归；
+oxlint 0/0。⚠ 项目已迁 F:\Development\Code
+odejs\Yuyi。
+
 ## 目录布局（2026-11-05 起）
 
 本仓库以 **git submodule** 挂入主仓库：`Yuyi/packages/yuyi-desk`（原
